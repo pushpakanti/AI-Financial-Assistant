@@ -8,6 +8,7 @@ from sqlalchemy import engine_from_config, pool
 from app.core.config import settings
 from app.database.base import Base
 from app.models.account import Account  # noqa: F401 - register model metadata for Alembic
+from app.models.transaction import Transaction  # noqa: F401 - register model metadata for Alembic
 from app.models.user import User  # noqa: F401 - register model metadata for Alembic
 
 
