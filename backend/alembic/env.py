@@ -8,8 +8,13 @@ from sqlalchemy import engine_from_config, pool
 from app.core.config import settings
 from app.database.base import Base
 from app.models.account import Account  # noqa: F401 - register model metadata for Alembic
+from app.models.budget import Budget  # noqa: F401 - register model metadata for Alembic
+from app.models.category import Category  # noqa: F401 - register model metadata for Alembic
+from app.models.goal import Goal  # noqa: F401 - register model metadata for Alembic
+from app.models.notification import Notification  # noqa: F401 - register model metadata for Alembic
 from app.models.transaction import Transaction  # noqa: F401 - register model metadata for Alembic
 from app.models.user import User  # noqa: F401 - register model metadata for Alembic
+from app.memory.memory_models import UserMemory  # noqa: F401 - register model metadata for Alembic
 
 
 config = context.config

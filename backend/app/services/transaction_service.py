@@ -3,6 +3,7 @@
 from app.core.exceptions import NotFoundException
 from app.models.transaction import Transaction
 from app.repositories.account_repository import AccountRepository
+from app.repositories.category_repository import CategoryRepository
 from app.repositories.transaction_repository import TransactionRepository
 from app.schemas.transaction import (
     TransactionCreate,
@@ -19,13 +20,16 @@ class TransactionService:
         self,
         transaction_repository: TransactionRepository,
         account_repository: AccountRepository,
+        category_repository: CategoryRepository,
     ) -> None:
         self._transaction_repository = transaction_repository
         self._account_repository = account_repository
+        self._category_repository = category_repository
 
     def create_transaction(self, user_id: int, transaction_data: TransactionCreate) -> Transaction:
         """Create a transaction linked to an account owned by the caller."""
         self._require_owned_account(transaction_data.account_id, user_id)
+        self._require_visible_category(transaction_data.category_id, user_id)
         data = transaction_data.model_dump()
         data["receipt_url"] = str(data["receipt_url"]) if data["receipt_url"] else None
         return self._transaction_repository.create(Transaction(user_id=user_id, **data))
@@ -46,6 +50,8 @@ class TransactionService:
         data = transaction_data.model_dump(exclude_unset=True)
         if "account_id" in data and data["account_id"] != transaction.account_id:
             self._require_owned_account(data["account_id"], user_id)
+        if "category_id" in data:
+            self._require_visible_category(data["category_id"], user_id)
         if "receipt_url" in data:
             data["receipt_url"] = str(data["receipt_url"]) if data["receipt_url"] else None
         for field, value in data.items():
@@ -75,3 +81,9 @@ class TransactionService:
     def _require_owned_account(self, account_id: int, user_id: int) -> None:
         if self._account_repository.get_by_id_and_user_id(account_id, user_id) is None:
             raise NotFoundException("Account not found.")
+
+    def _require_visible_category(self, category_id: int | None, user_id: int) -> None:
+        if category_id is not None and self._category_repository.get_visible_by_id_and_user_id(
+            category_id, user_id
+        ) is None:
+            raise NotFoundException("Category not found.")

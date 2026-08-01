@@ -3,12 +3,16 @@
 from datetime import date
 from decimal import Decimal
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Date, Enum as SqlEnum, ForeignKey, JSON, Numeric, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
 from app.models.mixins import PrimaryKeyMixin, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.category import Category
 
 
 class TransactionType(str, Enum):
@@ -30,7 +34,9 @@ class Transaction(PrimaryKeyMixin, TimestampMixin, Base):
     account_id: Mapped[int] = mapped_column(
         ForeignKey("accounts.id", ondelete="RESTRICT"), index=True, nullable=False
     )
-    category_id: Mapped[int | None] = mapped_column(index=True, nullable=True)
+    category_id: Mapped[int | None] = mapped_column(
+        ForeignKey("categories.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
     transaction_type: Mapped[TransactionType] = mapped_column(
         SqlEnum(TransactionType, name="transaction_type"), nullable=False
     )
@@ -43,3 +49,4 @@ class Transaction(PrimaryKeyMixin, TimestampMixin, Base):
     location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     tags: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     receipt_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    category: Mapped["Category | None"] = relationship("Category", back_populates="transactions")

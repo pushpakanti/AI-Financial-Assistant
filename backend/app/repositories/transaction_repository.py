@@ -2,7 +2,7 @@
 
 from decimal import Decimal
 
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import case, exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.transaction import Transaction, TransactionType
@@ -104,6 +104,11 @@ class TransactionRepository:
         """Remove a transaction permanently."""
         self._db.delete(transaction)
         self._db.commit()
+
+    def has_transactions_for_category(self, category_id: int) -> bool:
+        """Return whether any transaction currently references a category."""
+        statement = select(exists().where(Transaction.category_id == category_id))
+        return bool(self._db.scalar(statement))
 
     def _filtered_statement(self, user_id: int, filters: TransactionFilter):
         statement = select(Transaction).where(Transaction.user_id == user_id)

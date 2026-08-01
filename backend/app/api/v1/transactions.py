@@ -9,6 +9,7 @@ from app.api.deps import get_current_user
 from app.database.session import get_db
 from app.models.user import User
 from app.repositories.account_repository import AccountRepository
+from app.repositories.category_repository import CategoryRepository
 from app.repositories.transaction_repository import TransactionRepository
 from app.schemas.transaction import (
     TransactionCreate,
@@ -27,7 +28,9 @@ router = APIRouter(prefix="/transactions", tags=["transactions"])
 
 def get_transaction_service(db: Annotated[Session, Depends(get_db)]) -> TransactionService:
     """Build the request-scoped transaction service."""
-    return TransactionService(TransactionRepository(db), AccountRepository(db))
+    return TransactionService(
+        TransactionRepository(db), AccountRepository(db), CategoryRepository(db)
+    )
 
 
 def _page(items, total: int, limit: int, offset: int) -> TransactionPage:
