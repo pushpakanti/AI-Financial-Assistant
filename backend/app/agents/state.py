@@ -25,6 +25,10 @@ class GraphState(TypedDict):
     request: str
     user_id: int
     tool_registry: NotRequired[Any]
+    llm_gateway: NotRequired[Any]
+    prompt_manager: NotRequired[Any]
+    memory_manager: NotRequired[Any]
+    retrieved_memories: NotRequired[list[dict[str, Any]]]
     tool_results: NotRequired[list[dict[str, Any]]]
     planned_agents: NotRequired[list[AgentName]]
     planner_result: NotRequired[dict[str, Any]]
