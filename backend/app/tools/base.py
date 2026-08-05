@@ -42,13 +42,17 @@ class BaseTool(ABC):
                 "action": action,
                 "error": {"code": 422, "message": str(error)},
             }
-        except Exception:  # pragma: no cover - final tool boundary protection
+        except Exception as error:  # pragma: no cover - final tool boundary protection
             logger.exception("Unexpected tool failure tool=%s action=%s", self.name, action)
             return {
                 "success": False,
                 "tool": self.name,
                 "action": action,
-                "error": {"code": 500, "message": "Tool execution failed."},
+                "error": {
+                    "code": 500,
+                    "type": error.__class__.__name__,
+                    "message": str(error),
+                },
             }
 
     @staticmethod

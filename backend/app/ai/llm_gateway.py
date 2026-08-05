@@ -51,38 +51,35 @@ class LLMGateway:
         temperature: float | None = None,
         max_tokens: int | None = None,
     ) -> LLMResponse:
-        """Generate one unified response, retrying and falling back when appropriate."""
+        """Generate one unified response with one preferred-provider fallback attempt."""
         self._validate_prompt(prompt)
         errors: list[str] = []
-        for provider in self._candidate_providers():
-            for attempt in range(self._settings.LLM_MAX_RETRIES + 1):
-                try:
-                    response = provider.generate(
-                        prompt,
-                        system_prompt=system_prompt,
-                        model=model,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                    )
-                    logger.info(
-                        "LLM generation succeeded provider=%s model=%s latency_ms=%.2f attempt=%s",
-                        response.provider,
-                        response.model,
-                        response.latency_ms,
-                        attempt + 1,
-                    )
-                    return response
-                except LLMProviderError as error:
-                    errors.append(f"{provider.name}: {error}")
-                    self._log_failure(provider.name, attempt, error)
-                    if not error.retryable:
-                        break
-                    self._backoff(attempt)
-                except Exception as error:  # pragma: no cover - protects the gateway boundary
-                    wrapped_error = LLMProviderError("Provider raised an unexpected error.")
-                    errors.append(f"{provider.name}: {wrapped_error}")
-                    self._log_failure(provider.name, attempt, wrapped_error)
-                    self._backoff(attempt)
+        for attempt, provider in enumerate(self._candidate_providers(prompt), start=1):
+            try:
+                response = provider.generate(
+                    prompt,
+                    system_prompt=system_prompt,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                logger.info(
+                    "LLM generation succeeded provider=%s model=%s latency_ms=%.2f attempt=%s",
+                    response.provider,
+                    response.model,
+                    response.latency_ms,
+                    attempt,
+                )
+                return response
+            except LLMProviderError as error:
+                errors.append(f"{provider.name}: {error}")
+                self._log_failure(provider.name, attempt - 1, error)
+                self._log_fallback(prompt, attempt, provider.name)
+            except Exception as error:  # pragma: no cover - protects the gateway boundary
+                wrapped_error = LLMProviderError("Provider raised an unexpected error.")
+                errors.append(f"{provider.name}: {wrapped_error}")
+                self._log_failure(provider.name, attempt - 1, wrapped_error)
+                self._log_fallback(prompt, attempt, provider.name)
         raise LLMProviderError(
             f"All configured LLM providers failed. {'; '.join(errors)}", retryable=False
         )
@@ -99,40 +96,39 @@ class LLMGateway:
         """Stream unified chunks; fallback only before any content has been emitted."""
         self._validate_prompt(prompt)
         errors: list[str] = []
-        for provider in self._candidate_providers():
-            for attempt in range(self._settings.LLM_MAX_RETRIES + 1):
-                emitted_content = False
-                started = time.perf_counter()
-                try:
-                    for chunk in provider.stream(
-                        prompt,
-                        system_prompt=system_prompt,
-                        model=model,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                    ):
-                        emitted_content = emitted_content or bool(chunk.content)
-                        yield chunk
-                    logger.info(
-                        "LLM stream completed provider=%s latency_ms=%.2f attempt=%s",
-                        provider.name,
-                        (time.perf_counter() - started) * 1000,
-                        attempt + 1,
-                    )
-                    return
-                except LLMProviderError as error:
-                    errors.append(f"{provider.name}: {error}")
-                    self._log_failure(provider.name, attempt, error)
-                    if emitted_content or not error.retryable:
-                        raise
-                    self._backoff(attempt)
-                except Exception as error:  # pragma: no cover - protects the streaming boundary
-                    wrapped_error = LLMProviderError("Provider stream raised an unexpected error.")
-                    errors.append(f"{provider.name}: {wrapped_error}")
-                    self._log_failure(provider.name, attempt, wrapped_error)
-                    if emitted_content:
-                        raise wrapped_error from error
-                    self._backoff(attempt)
+        for attempt, provider in enumerate(self._candidate_providers(prompt), start=1):
+            emitted_content = False
+            started = time.perf_counter()
+            try:
+                for chunk in provider.stream(
+                    prompt,
+                    system_prompt=system_prompt,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                ):
+                    emitted_content = emitted_content or bool(chunk.content)
+                    yield chunk
+                logger.info(
+                    "LLM stream completed provider=%s latency_ms=%.2f attempt=%s",
+                    provider.name,
+                    (time.perf_counter() - started) * 1000,
+                    attempt,
+                )
+                return
+            except LLMProviderError as error:
+                errors.append(f"{provider.name}: {error}")
+                self._log_failure(provider.name, attempt - 1, error)
+                if emitted_content:
+                    raise
+                self._log_fallback(prompt, attempt, provider.name)
+            except Exception as error:  # pragma: no cover - protects the streaming boundary
+                wrapped_error = LLMProviderError("Provider stream raised an unexpected error.")
+                errors.append(f"{provider.name}: {wrapped_error}")
+                self._log_failure(provider.name, attempt - 1, wrapped_error)
+                if emitted_content:
+                    raise wrapped_error from error
+                self._log_fallback(prompt, attempt, provider.name)
         raise LLMProviderError(
             f"All configured LLM providers failed before streaming content. {'; '.join(errors)}",
             retryable=False,
@@ -143,7 +139,7 @@ class LLMGateway:
         return {name: provider.health_check() for name, provider in self._providers.items()}
 
     def _build_providers(self) -> dict[str, BaseLLMProvider]:
-        provider_names = [self._settings.LLM_PRIMARY_PROVIDER, *self._settings.fallback_provider_names]
+        provider_names = ["gemini", "groq", self._settings.LLM_PRIMARY_PROVIDER, *self._settings.fallback_provider_names]
         providers: dict[str, BaseLLMProvider] = {}
         for name in provider_names:
             factory = self._provider_factories.get(name)
@@ -153,8 +149,11 @@ class LLMGateway:
             providers.setdefault(name, factory(self._settings))
         return providers
 
-    def _candidate_providers(self) -> Iterator[BaseLLMProvider]:
-        ordered_names = [self._settings.LLM_PRIMARY_PROVIDER, *self._settings.fallback_provider_names]
+    def _candidate_providers(self, prompt: str) -> Iterator[BaseLLMProvider]:
+        preferred_name, reason = self._provider_selection(prompt)
+        alternate_name = "gemini" if preferred_name == "groq" else "groq"
+        logger.info("Selected provider=%s reason=%s", preferred_name, reason)
+        ordered_names = [preferred_name, alternate_name]
         yielded_names: set[str] = set()
         for name in ordered_names:
             if name in yielded_names:
@@ -167,8 +166,55 @@ class LLMGateway:
                 logger.warning("Skipping unconfigured LLM provider provider=%s", name)
                 continue
             yield provider
-        if not yielded_names:
+        if not any(provider.is_configured for provider in self._providers.values()):
             logger.warning("No LLM providers were configured for the gateway.")
+
+    @classmethod
+    def _preferred_provider_name(cls, prompt: str) -> str:
+        """Return the deterministic provider selection without exposing classifier details."""
+        return cls._provider_selection(prompt)[0]
+
+    @staticmethod
+    def _provider_selection(prompt: str) -> tuple[str, str]:
+        """Choose Gemini only for explicit reasoning-heavy user requests."""
+        request = prompt.split("\n", 1)[0].rsplit(":", 1)[-1].casefold().strip()
+        complex_markers = (
+            "multi-agent",
+            "analysis",
+            "analyze",
+            "am i on track",
+            "on track",
+            "predict",
+            "recommend",
+            "suggest",
+            "improve",
+            "what should i do",
+            "how can i",
+            "explain",
+            "why",
+            "compare",
+            "investment",
+            "portfolio",
+            "cash flow",
+            "cashflow",
+            "savings",
+            "financial health",
+            "report",
+            "trend",
+        )
+        if any(marker in request for marker in complex_markers):
+            return "gemini", "financial_analysis"
+        return "groq", "simple_lookup"
+
+    def _log_fallback(self, prompt: str, attempt: int, failed_provider: str) -> None:
+        """Log the one permitted alternate-provider retry without changing control flow."""
+        if attempt != 1:
+            return
+        preferred_name = self._preferred_provider_name(prompt)
+        alternate_name = "gemini" if preferred_name == "groq" else "groq"
+        alternate = self._providers.get(alternate_name)
+        if alternate is not None and alternate.is_configured and failed_provider == preferred_name:
+            logger.warning("Primary provider failed. Falling back to %s.", alternate_name.title())
 
     @staticmethod
     def _validate_prompt(prompt: str) -> None:

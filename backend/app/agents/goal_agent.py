@@ -11,7 +11,6 @@ from app.prompts import PromptManager
 
 logger = logging.getLogger(__name__)
 _prompt_manager = PromptManager()
-_GOAL_ACTIONS: tuple[str, ...] = ("list", "summary", "progress", "prediction", "recommendations")
 
 
 def goal_agent(state: GraphState) -> dict[str, object]:
@@ -21,11 +20,12 @@ def goal_agent(state: GraphState) -> dict[str, object]:
 
     tool_results = _goal_tool_results(state)
     context = _goal_context(tool_results)
+    llm_context = _minimal_goal_context(context, state.get("request", ""))
     prompt_manager = state.get("prompt_manager") or _prompt_manager
     rendered_prompt = prompt_manager.render_agent_prompt(
         "goal", variables={"request": state.get("request", "")}
     )
-    analysis_prompt = _analysis_prompt(rendered_prompt.content, context)
+    analysis_prompt = _analysis_prompt(rendered_prompt.content, llm_context)
     output_data: dict[str, Any] = {
         "raw_tool_data": tool_results,
         "goal_context": context,
@@ -79,10 +79,29 @@ def _goal_tool_results(state: GraphState) -> list[dict[str, Any]]:
     if registry is None:
         return results
 
-    for action in _GOAL_ACTIONS:
+    for action in _goal_actions(state.get("request", "")):
         if action not in available_actions:
             results.append(registry.execute("goal", state["user_id"], action, {}))
     return results
+
+
+def _goal_actions(request: str) -> tuple[str, ...]:
+    """Select only the goal views necessary for the user's request."""
+    normalized_request = request.casefold()
+    if "overview" in normalized_request or "analysis" in normalized_request:
+        return ("list", "summary", "progress", "prediction", "recommendations")
+    selected: list[str] = []
+    if any(keyword in normalized_request for keyword in ("show", "list", "active", "completed")):
+        selected.append("list")
+    if any(keyword in normalized_request for keyword in ("progress", "on track", "remaining")):
+        selected.append("progress")
+    if any(keyword in normalized_request for keyword in ("predict", "prediction", "when", "deadline")):
+        selected.append("prediction")
+    if any(keyword in normalized_request for keyword in ("recommend", "advice", "prioritize")):
+        selected.append("recommendations")
+    if "summary" in normalized_request:
+        selected.append("summary")
+    return tuple(dict.fromkeys(selected)) or ("summary",)
 
 
 def _goal_context(tool_results: list[dict[str, Any]]) -> dict[str, Any]:
@@ -115,13 +134,54 @@ def _goals_with_status(goals: list[Any] | None, status: str) -> list[dict[str, A
     ]
 
 
+def _minimal_goal_context(context: dict[str, Any], request: str) -> dict[str, Any]:
+    """Remove goal audit fields while retaining goal facts used for advice."""
+    normalized_request = request.casefold()
+    result = {
+        "goal_progress": _minimal_goals(context.get("goal_progress")),
+        "prediction": _without_metadata(context.get("prediction")),
+        "recommendations": _without_metadata(context.get("recommendations")),
+        "summary": context.get("summary"),
+    }
+    if "completed" not in normalized_request or "active" in normalized_request:
+        result["active_goals"] = _minimal_goals(context.get("active_goals"))
+    if "active" not in normalized_request or "completed" in normalized_request:
+        result["completed_goals"] = _minimal_goals(context.get("completed_goals"))
+    return result
+
+
+def _minimal_goals(goals: Any) -> list[dict[str, Any]] | None:
+    """Keep only the goal identifiers, state, and contribution facts."""
+    if not isinstance(goals, list):
+        return None
+    fields = (
+        "title", "target_amount", "current_amount", "deadline", "priority", "status",
+        "monthly_required", "remaining_amount", "percentage_complete", "days_remaining",
+    )
+    return [{field: goal.get(field) for field in fields if field in goal} for goal in goals if isinstance(goal, dict)]
+
+
+def _without_metadata(value: Any) -> Any:
+    """Remove internal identifiers and audit fields from goal prompt context."""
+    excluded = {"id", "user_id", "goal_id", "created_at", "updated_at"}
+    if isinstance(value, dict):
+        return {key: _without_metadata(item) for key, item in value.items() if key not in excluded}
+    if isinstance(value, list):
+        return [_without_metadata(item) for item in value]
+    return value
+
+
 def _analysis_prompt(rendered_prompt: str, context: dict[str, Any]) -> str:
     """Append user-scoped goal context and explicit response boundaries to the prompt."""
     serialized_context = json.dumps(context, ensure_ascii=False, default=str)
     return (
         f"{rendered_prompt}\n\n"
         "Use only the following user-scoped goal data. Do not invent values. "
-        "Give concise, practical next steps and clearly note when data is unavailable.\n\n"
+        "Be concise: use bullets where helpful, avoid introductions and generic education, and never repeat tool data. "
+        "Keep under 150 words unless the user asks to explain, detail, why, analyze, report, or recommend. "
+        "For on-track questions, state on track or not, summarize progress, then give 2-3 actionable next steps.\n\n"
+        "All monetary values in the provided context are denominated in INR. Never change the currency "
+        "or invent another symbol. Always present monetary amounts using ₹ or INR.\n\n"
         f"Goal context:\n{serialized_context}"
     )
 

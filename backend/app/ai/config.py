@@ -41,3 +41,5 @@ class LLMSettings(BaseSettings):
         """Return normalized, de-duplicated fallback provider names."""
         names = [name.strip().lower() for name in self.LLM_FALLBACK_PROVIDERS.split(",")]
         return [name for index, name in enumerate(names) if name and name not in names[:index]]
+
+settings = LLMSettings()

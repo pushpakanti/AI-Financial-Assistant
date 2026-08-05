@@ -11,7 +11,6 @@ from app.prompts import PromptManager
 
 logger = logging.getLogger(__name__)
 _prompt_manager = PromptManager()
-_BUDGET_ACTIONS: tuple[str, ...] = ("summary", "progress", "alerts")
 
 
 def budget_agent(state: GraphState) -> dict[str, object]:
@@ -21,11 +20,12 @@ def budget_agent(state: GraphState) -> dict[str, object]:
 
     tool_results = _budget_tool_results(state)
     context = _budget_context(tool_results)
+    llm_context = _minimal_budget_context(context, state.get("request", ""))
     prompt_manager = state.get("prompt_manager") or _prompt_manager
     rendered_prompt = prompt_manager.render_agent_prompt(
         "budget", variables={"request": state.get("request", "")}
     )
-    analysis_prompt = _analysis_prompt(rendered_prompt.content, context)
+    analysis_prompt = _analysis_prompt(rendered_prompt.content, llm_context)
     output_data: dict[str, Any] = {
         "raw_tool_data": tool_results,
         "budget_context": context,
@@ -79,10 +79,25 @@ def _budget_tool_results(state: GraphState) -> list[dict[str, Any]]:
     if registry is None:
         return results
 
-    for action in _BUDGET_ACTIONS:
+    for action in _budget_actions(state.get("request", "")):
         if action not in available_actions:
             results.append(registry.execute("budget", state["user_id"], action, {}))
     return results
+
+
+def _budget_actions(request: str) -> tuple[str, ...]:
+    """Select only the budget views necessary for the user's request."""
+    normalized_request = request.casefold()
+    if "overview" in normalized_request or "analysis" in normalized_request:
+        return ("summary", "progress", "alerts")
+    selected: list[str] = []
+    if any(keyword in normalized_request for keyword in ("budget", "summary", "remaining")):
+        selected.append("summary")
+    if any(keyword in normalized_request for keyword in ("progress", "percentage", "spending")):
+        selected.append("progress")
+    if any(keyword in normalized_request for keyword in ("alert", "warning", "limit")):
+        selected.append("alerts")
+    return tuple(selected) or ("summary",)
 
 
 def _budget_context(tool_results: list[dict[str, Any]]) -> dict[str, Any]:
@@ -106,13 +121,52 @@ def _budget_context(tool_results: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _minimal_budget_context(context: dict[str, Any], request: str) -> dict[str, Any]:
+    """Send summary data by default; add progress or alerts only when requested."""
+    normalized_request = request.casefold()
+    result = {
+        "budget_summary": _minimal_summary(context.get("budget_summary")),
+        "remaining_budget": context.get("remaining_budget"),
+    }
+    if any(keyword in normalized_request for keyword in ("progress", "percentage", "spending", "overview", "analysis")):
+        result["spending_percentage"] = context.get("spending_percentage")
+        result["exceeded_budgets"] = context.get("exceeded_budgets")
+    if any(keyword in normalized_request for keyword in ("alert", "warning", "limit", "overview", "analysis")):
+        result["active_alerts"] = _minimal_budget_items(context.get("active_alerts"))
+    return result
+
+
+def _minimal_summary(summary: Any) -> dict[str, Any] | None:
+    """Keep aggregate budget context to the public planning facts only."""
+    if not isinstance(summary, dict):
+        return None
+    status = {
+        "active": summary.get("active_budget_count"),
+        "completed": summary.get("completed_budget_count"),
+        "expired": summary.get("expired_budget_count"),
+    }
+    return {
+        "total_budget": summary.get("total_budgeted"),
+        "remaining_budget": summary.get("total_remaining"),
+        "budget_count": summary.get("budget_count"),
+        "budget_status": {key: value for key, value in status.items() if value is not None},
+    }
+
+
+def _minimal_budget_items(items: Any) -> list[dict[str, Any]] | None:
+    """Keep only the budget facts necessary to explain progress or alerts."""
+    if not isinstance(items, list):
+        return None
+    fields = ("name", "amount", "spent_amount", "remaining_amount", "percentage_used", "alert_percentage", "status")
+    return [{field: item.get(field) for field in fields if field in item} for item in items if isinstance(item, dict)]
+
+
 def _spending_percentage(progress: list[Any] | None) -> list[dict[str, Any]]:
     """Expose only the identifiers and spending thresholds needed for recommendations."""
     if progress is None:
         return []
     return [
         {
-            "budget_id": item.get("id"),
             "name": item.get("name"),
             "percentage_used": item.get("percentage_used"),
             "alert_percentage": item.get("alert_percentage"),
@@ -136,7 +190,10 @@ def _analysis_prompt(rendered_prompt: str, context: dict[str, Any]) -> str:
     return (
         f"{rendered_prompt}\n\n"
         "Use only the following user-scoped budget data. Do not invent values. "
-        "Give concise, practical spending recommendations and clearly note unavailable data.\n\n"
+        "Be concise: use bullets where helpful, avoid introductions and generic education, and never repeat tool data. "
+        "Keep under 150 words unless the user asks to explain, detail, why, analyze, report, or recommend.\n\n"
+        "All monetary values in the provided context are denominated in INR. Never change the currency "
+        "or invent another symbol. Always present monetary amounts using ₹ or INR.\n\n"
         f"Budget context:\n{serialized_context}"
     )
 

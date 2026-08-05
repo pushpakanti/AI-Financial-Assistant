@@ -51,10 +51,13 @@ def memory_agent(state: GraphState) -> dict[str, object]:
         summaries, routing = _agent_summaries(state), _planner_routing(state)
 
     completed_agents = [agent for agent in SUPPORTED_AGENTS if agent in summaries]
+    summary = _retrieved_profile_summary(state.get("request", ""), retrieved_memories) or _summary(
+        persistence_status, len(retrieved_memories), len(newly_stored)
+    )
     result = AgentOutput(
         agent="memory",
         status="completed",
-        summary=_summary(persistence_status, len(retrieved_memories), len(newly_stored)),
+        summary=summary,
         data={
             "retrieved_memories": retrieved_memories,
             "newly_stored_memories": newly_stored,
@@ -133,7 +136,12 @@ def _planner_routing(state: GraphState) -> list[str]:
 
 def _store_conversation(manager: Any, user_id: int, conversation: dict[str, Any]) -> tuple[Any | None, str]:
     """Persist one idempotently keyed conversation record for the authenticated user."""
-    key = f"conversation:{_digest(conversation)}"
+    identity = {
+        "user_id": user_id,
+        "user_message": _normalize_message(conversation["user_message"]),
+        "planner_routing": sorted(conversation["planner_routing"]),
+    }
+    key = f"conversation:{_digest(identity)}"
     try:
         if manager.load_memory(user_id, MemoryType.CONVERSATION, key):
             return None, "duplicate_skipped"
@@ -175,7 +183,10 @@ def _profile_updates(request: str) -> dict[str, Any]:
                 break
     if "prefer" in normalized and any(term in normalized for term in ("invest", "investment", "portfolio")):
         updates["investment_preference"] = request[:255]
-    salary_day = re.search(r"\bsalary day(?: is| on)?\s+(\d{1,2})\b", normalized)
+    salary_day = re.search(
+        r"\b(?:salary day|(?:get )?paid)(?: is| on)?\s+(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?\b",
+        normalized,
+    )
     if salary_day and 1 <= int(salary_day.group(1)) <= 31:
         updates["salary_day"] = int(salary_day.group(1))
     if "prefer" in normalized and "budget" in normalized:
@@ -187,6 +198,11 @@ def _digest(value: dict[str, Any]) -> str:
     """Produce a compact stable key that avoids duplicate conversation records."""
     serialized = json.dumps(value, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()[:64]
+
+
+def _normalize_message(message: str) -> str:
+    """Normalize user input used solely for conversation identity."""
+    return " ".join(message.casefold().split())
 
 
 def _memory_payload(manager: Any, memory: Any) -> dict[str, Any]:
@@ -210,3 +226,14 @@ def _summary(status: dict[str, str], retrieved_count: int, stored_count: int) ->
     if status["conversation"] == "failed" or status["profile"] == "failed":
         return "Workflow completed; memory persistence was partially unavailable."
     return f"Workflow completed with {retrieved_count} retrieved and {stored_count} newly stored memory record(s)."
+
+
+def _retrieved_profile_summary(request: str, memories: list[dict[str, Any]]) -> str | None:
+    """Answer direct profile lookups from already retrieved, user-scoped memory."""
+    if "risk profile" not in request.casefold():
+        return None
+    for memory in memories:
+        value = memory.get("value")
+        if memory.get("key") == "profile" and isinstance(value, dict) and value.get("risk_profile"):
+            return f"Your risk profile is {str(value['risk_profile']).casefold()}."
+    return None

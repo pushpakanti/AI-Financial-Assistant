@@ -12,6 +12,11 @@ BACKEND_DIRECTORY = Path(__file__).resolve().parents[2]
 class Settings(BaseSettings):
     """Typed runtime configuration for the application."""
 
+    GROQ_API_KEY: str | None = None
+    GROQ_MODEL: str | None = None
+    GEMINI_API_KEY: str | None = None
+    GEMINI_MODEL: str | None = None
+
     APP_NAME: str
     APP_VERSION: str
     PROJECT_NAME: str = "AI Financial Assistant"

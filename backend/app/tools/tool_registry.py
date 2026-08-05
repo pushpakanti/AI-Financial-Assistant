@@ -40,7 +40,19 @@ class ToolRegistry:
                 "action": action,
                 "error": {"code": 404, "message": "Tool not found."},
             }
-        return tool.execute(user_id, action, payload)
+        result = tool.execute(user_id, action, payload)
+        if not result.get("success"):
+            self._rollback_failed_tool_session()
+        return result
+
+    def _rollback_failed_tool_session(self) -> None:
+        """Reset the shared request session so one failed tool cannot poison later tools."""
+        if not self._db.in_transaction():
+            return
+        try:
+            self._db.rollback()
+        except Exception:  # pragma: no cover - rollback must not replace the original tool result
+            logger.exception("Failed to roll back database session after tool failure")
 
     def _discover_tools(self) -> dict[str, BaseTool]:
         """Discover subclasses from `*_tool.py` modules without a hand-maintained list."""

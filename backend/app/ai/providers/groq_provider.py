@@ -1,12 +1,19 @@
 """Groq OpenAI-compatible REST adapter for the gateway contract."""
 
 import json
+import logging
 import time
 from collections.abc import Iterator
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+import requests
+
 from app.ai.providers.base import BaseLLMProvider, LLMProviderError, LLMResponse, LLMStreamChunk
+
+
+logger = logging.getLogger(__name__)
+_ERROR_BODY_LIMIT = 2_000
 
 
 class GroqProvider(BaseLLMProvider):
@@ -90,24 +97,24 @@ class GroqProvider(BaseLLMProvider):
         """Verify the configured key can access Groq's model listing."""
         if not self.is_configured:
             return False
-        request = Request(f"{self._base_url}/models", headers=self._headers())
         try:
-            with urlopen(request, timeout=self._timeout_seconds):  # noqa: S310 - provider URL is constant
-                return True
-        except (HTTPError, URLError, TimeoutError):
+            response = requests.get(
+                f"{self._base_url}/models", headers=self._headers(), timeout=self._timeout_seconds
+            )
+            response.raise_for_status()
+            return True
+        except requests.RequestException as error:
+            self._provider_error(error)
             return False
 
     def _request_json(self, url: str, payload: dict) -> dict:
-        request = Request(
-            url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers=self._headers(),
-            method="POST",
-        )
         try:
-            with urlopen(request, timeout=self._timeout_seconds) as response:  # noqa: S310 - provider URL is constant
-                return json.loads(response.read().decode("utf-8"))
-        except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as error:
+            response = requests.post(
+                url, json=payload, headers=self._headers(), timeout=self._timeout_seconds
+            )
+            response.raise_for_status()
+            return response.json()
+        except (requests.RequestException, ValueError) as error:
             raise self._provider_error(error) from error
 
     def _headers(self) -> dict[str, str]:
@@ -129,8 +136,19 @@ class GroqProvider(BaseLLMProvider):
 
     @staticmethod
     def _provider_error(error: Exception) -> LLMProviderError:
-        if isinstance(error, HTTPError):
+        if isinstance(error, (HTTPError, requests.HTTPError)):
+            response = getattr(error, "response", None)
+            try:
+                body = (
+                    response.text if response is not None else error.read().decode("utf-8", errors="replace")
+                )[:_ERROR_BODY_LIMIT]
+            except Exception:
+                body = "<no body>"
+            status_code = getattr(response, "status_code", getattr(error, "code", "unknown"))
+            logger.warning("Groq HTTP error status=%s response_body=%s", status_code, body)
             return LLMProviderError(
-                f"Groq request failed with HTTP {error.code}.", retryable=error.code >= 500 or error.code == 429
+                f"Groq HTTP {status_code}: {body}",
+                retryable=isinstance(status_code, int) and (status_code >= 500 or status_code == 429),
             )
+        logger.warning("Groq request failed error=%s", error)
         return LLMProviderError("Groq request failed.", retryable=True)
