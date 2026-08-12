@@ -87,7 +87,8 @@ class StatementService:
                     skipped += 1
                     continue
                 category_id = self._category_id(user_id, item.category)
-                self._transaction_service.create_transaction(user_id, TransactionCreate(account_id=statement.account_id, category_id=category_id, transaction_type=item.transaction_type, title=(item.merchant or item.description or "Imported transaction")[:255], description=item.description, amount=item.amount, transaction_date=item.date, merchant=item.merchant, tags=[]))
+                title = (item.title or item.merchant or item.description or "Imported transaction")[:255]
+                self._transaction_service.create_transaction(user_id, TransactionCreate(account_id=statement.account_id, category_id=category_id, transaction_type=item.transaction_type, title=title, description=item.description, amount=item.amount, transaction_date=item.date, merchant=item.merchant, tags=[]))
                 imported += 1
         except Exception:
             statement.status = StatementStatus.FAILED
@@ -117,7 +118,17 @@ class StatementService:
             raise BadRequestException("The uploaded statement file is invalid or corrupted.") from None
 
     def _normalize_rows(self, rows: list[dict[str, object]]) -> list[dict[str, object]] | None:
-        aliases = {"date": {"date", "transaction date"}, "description": {"description", "narration", "details"}, "merchant": {"merchant"}, "debit": {"debit"}, "credit": {"credit"}, "amount": {"amount"}, "category": {"category"}}
+        aliases = {
+            "date": {"date", "transaction date"},
+            "title": {"title"},
+            "description": {"description", "narration", "details"},
+            "merchant": {"merchant"},
+            "debit": {"debit"},
+            "credit": {"credit"},
+            "amount": {"amount"},
+            "category": {"category"},
+            "type": {"type"},
+        }
         mapping = {}
         for header in rows[0]:
             cleaned = re.sub(r"\s+", " ", str(header).strip().casefold())
@@ -136,7 +147,8 @@ class StatementService:
             amount, kind = self._amount_and_type(row)
             provided = self._text(row.get("category"))
             category = self._resolve_category(provided, merchant, categories)
-            return StatementPreviewTransaction(row_number=row_number, date=transaction_date, merchant=merchant[:255], description=description[:10000] if description else None, amount=amount, transaction_type=kind, category=category, valid=True)
+            title = self._text(row.get("title"))
+            return StatementPreviewTransaction(row_number=row_number, date=transaction_date, title=title, merchant=merchant[:255], description=description[:10000] if description else None, amount=amount, transaction_type=kind, category=category, valid=True)
         except (ValueError, InvalidOperation) as exc:
             return StatementPreviewTransaction(row_number=row_number, valid=False, error=str(exc))
 
@@ -156,7 +168,13 @@ class StatementService:
         raise ValueError("invalid date")
 
     def _amount_and_type(self, row: dict[str, object]) -> tuple[Decimal, TransactionType]:
+        explicit_type = str(row.get("type")).strip().upper() if row.get("type") else None
         debit, credit, amount = (self._decimal(row.get(key)) for key in ("debit", "credit", "amount"))
+        if explicit_type in ("INCOME", "EXPENSE", "TRANSFER"):
+            t_type = TransactionType(explicit_type)
+            val = debit or credit or amount
+            if val is None or val == 0: raise ValueError("amount is required")
+            return abs(val), t_type
         if debit is not None and debit > 0: return debit, TransactionType.EXPENSE
         if credit is not None and credit > 0: return credit, TransactionType.INCOME
         if amount is None or amount == 0: raise ValueError("amount is required")
@@ -169,8 +187,10 @@ class StatementService:
         return Decimal(cleaned)
 
     def _resolve_category(self, supplied: str | None, merchant: str, categories: dict) -> str | None:
-        if supplied and supplied.casefold() in categories: return categories[supplied.casefold()].name
-        if supplied: return self._uncategorized(categories)
+        if supplied:
+            if supplied.casefold() in categories:
+                return categories[supplied.casefold()].name
+            return supplied
         heuristic = next((name for key, name in CANONICAL_CATEGORIES.items() if key in merchant.casefold()), None)
         if heuristic and heuristic.casefold() in categories: return categories[heuristic.casefold()].name
         try:
@@ -186,7 +206,22 @@ class StatementService:
 
     def _category_id(self, user_id: int, category_name: str | None) -> int | None:
         if not category_name: return None
-        return next((category.id for category in self._categories.list_visible(user_id) if category.name.casefold() == category_name.casefold()), None)
+        existing = next((category.id for category in self._categories.list_visible(user_id) if category.name.casefold() == category_name.casefold()), None)
+        if existing is not None:
+            return existing
+
+        custom_cats = self._categories.list_custom_by_user_id(user_id)
+        existing_custom = next((c for c in custom_cats if c.name.casefold() == category_name.casefold()), None)
+        if existing_custom is not None:
+            if not existing_custom.is_active:
+                existing_custom.is_active = True
+                self._categories.update(existing_custom)
+            return existing_custom.id
+
+        from app.models.category import Category
+        new_cat = Category(user_id=user_id, name=category_name, is_default=False, is_active=True)
+        created = self._categories.create(new_cat)
+        return created.id
 
     def _duplicate_exists(self, user_id: int, item: StatementPreviewTransaction) -> bool:
         merchant = (item.merchant or item.description or "").casefold()

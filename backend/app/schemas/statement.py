@@ -12,6 +12,7 @@ from app.models.transaction import TransactionType
 class StatementPreviewTransaction(BaseModel):
     row_number: int
     date: Date | None = None
+    title: str | None = None
     merchant: str | None = None
     description: str | None = None
     amount: Decimal | None = None
