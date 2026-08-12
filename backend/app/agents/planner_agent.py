@@ -14,6 +14,7 @@ _ROUTING_KEYWORDS: dict[str, tuple[str, ...]] = {
     "finance": (
         "finance", "transaction", "income", "expense", "cash flow", "account", "balance",
         "spending", "spent", "merchant", "category",
+        "invest", "portfolio", "sip", "stock", "equity", "shares", "mutual fund", "plan",
     ),
     "budget": ("budget", "remaining budget", "budget left", "budget is left", "budget summary", "budget alerts", "alert"),
     "goal": ("goal", "savings goal", "prediction", "recommendation", "save", "saving", "target"),

@@ -133,6 +133,15 @@ class ConversationalFinanceTests(unittest.TestCase):
         )
         self.assertEqual(planner_agent(self.state("Analyze my dashboard and goals"))["planned_agents"], ["goal", "report"])
 
+    def test_investment_and_planning_routing(self):
+        for message in (
+            "I have invested 7000 in stocks",
+            "Give me a financial plan",
+            "I want an investment plan for September",
+        ):
+            result = planner_agent(self.state(message))
+            self.assertIn("finance", result["planned_agents"])
+
     def test_pending_account_clarification_resolves_alias_then_confirms_and_executes(self):
         initial = planner_agent(self.state("debit ₹15,000 from this account"))["mutation"]
         self.assertEqual(initial["status"], "clarification_required")
@@ -196,6 +205,19 @@ class ConversationalFinanceTests(unittest.TestCase):
         response = _handle_mutation({**self.state("I spent ₹10,000 at the shopping mall."), "mutation": mutation, "planned_agents": ["finance"]}, mutation)
         self.assertIn("haven't recorded", response["finance_result"]["summary"])
         self.assertEqual(self.registry.withdrawals, [])
+
+    def test_llm_gateway_provider_selection(self):
+        from app.ai import LLMGateway
+        gateway = LLMGateway()
+        
+        # Test Gemini selection for complex reasoning markers
+        self.assertEqual(gateway._preferred_provider_name("Analyze my spending"), "gemini")
+        self.assertEqual(gateway._preferred_provider_name("Give me a financial plan"), "gemini")
+        self.assertEqual(gateway._preferred_provider_name("I have invested 7000 in stocks"), "gemini")
+        
+        # Test Groq selection for simple lookups
+        self.assertEqual(gateway._preferred_provider_name("What is my balance?"), "groq")
+        self.assertEqual(gateway._preferred_provider_name("Show my transactions"), "groq")
 
 
 if __name__ == "__main__":
