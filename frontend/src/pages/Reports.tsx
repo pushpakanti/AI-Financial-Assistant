@@ -8,6 +8,7 @@ import { Table, TableRow, TableCell } from '../components/ui/Table';
 import { Badge } from '../components/ui/Badge';
 import { useToast } from '../contexts/ToastContext';
 import {
+  AlertTriangle,
   BarChart3,
   Calendar,
   Download,
@@ -26,11 +27,18 @@ export const Reports: React.FC = () => {
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
     d.setDate(1); // start of current month
-    return d.toISOString().split('T')[0];
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   });
 
   const [endDate, setEndDate] = useState(() => {
-    return new Date().toISOString().split('T')[0];
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   });
 
   // Query Accounts
@@ -45,15 +53,58 @@ export const Reports: React.FC = () => {
     queryFn: apiService.getCategories,
   });
 
+  const isValidDateRange = !!startDate && !!endDate && startDate <= endDate;
+
   // Query Transactions within the selected range
-  const { data: txPage, isLoading: loadingTx } = useQuery({
+  const { data: txPage, isLoading: loadingTx, isError } = useQuery({
     queryKey: ['reportTransactions', startDate, endDate],
-    queryFn: () =>
-      apiService.getTransactions({
-        start_date: startDate,
-        end_date: endDate,
-        limit: 10000, // Fetch all records to do analysis
-      }),
+    queryFn: async () => {
+      try {
+        let allItems: any[] = [];
+        let offset = 0;
+        const limit = 100;
+        let hasMore = true;
+
+        while (hasMore) {
+          const response = await apiService.getTransactions({
+            start_date: startDate,
+            end_date: endDate,
+            limit,
+            offset,
+          });
+
+          const items = response.items || [];
+          allItems = [...allItems, ...items];
+
+          if (items.length < limit || allItems.length >= (response.total || 0)) {
+            hasMore = false;
+          } else {
+            offset += limit;
+          }
+        }
+
+        // Combine the pages without duplicating transactions
+        const seenIds = new Set();
+        const uniqueItems = allItems.filter(item => {
+          if (seenIds.has(item.id)) {
+            return false;
+          }
+          seenIds.add(item.id);
+          return true;
+        });
+
+        return {
+          items: uniqueItems,
+          total: uniqueItems.length,
+          limit: limit,
+          offset: 0
+        };
+      } catch (err: any) {
+        toast.showToast(err.message || 'Failed to fetch transaction reports data', 'error');
+        throw err;
+      }
+    },
+    enabled: isValidDateRange,
   });
 
   const transactions = txPage?.items || [];
@@ -64,10 +115,14 @@ export const Reports: React.FC = () => {
   const categorySums: Record<number, { name: string; amount: number; color: string }> = {};
 
   transactions.forEach((tx) => {
-    if (tx.transaction_type === 'income') {
-      totalIncome += tx.amount;
-    } else if (tx.transaction_type === 'expense') {
-      totalExpense += tx.amount;
+    const isIncome = tx.transaction_type.toLowerCase() === 'income';
+    const isExpense = tx.transaction_type.toLowerCase() === 'expense';
+    const amount = Number(tx.amount) || 0;
+
+    if (isIncome) {
+      totalIncome += amount;
+    } else if (isExpense) {
+      totalExpense += amount;
       
       const catId = tx.category_id || 0;
       const cat = categories.find((c) => c.id === catId);
@@ -77,7 +132,7 @@ export const Reports: React.FC = () => {
       if (!categorySums[catId]) {
         categorySums[catId] = { name: catName, amount: 0, color: catColor };
       }
-      categorySums[catId].amount += tx.amount;
+      categorySums[catId].amount += amount;
     }
   });
 
@@ -184,8 +239,24 @@ export const Reports: React.FC = () => {
       {isLoading ? (
         <div className="flex flex-col items-center justify-center min-h-[30vh] gap-3">
           <Loader2 className="w-8 h-8 animate-spin text-indigo-650" />
-          <span className="text-xs text-slate-500 font-medium">Compiling reporting details...</span>
+          <span className="text-xs text-slate-550 dark:text-slate-400 font-medium">Compiling reporting details...</span>
         </div>
+      ) : !isValidDateRange ? (
+        <Card className="py-12 text-center max-w-md mx-auto mt-6 border-amber-200 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-950/20">
+          <CardContent className="flex flex-col items-center justify-center p-8">
+            <AlertTriangle className="w-12 h-12 text-amber-500 mb-3" />
+            <h4 className="text-base font-bold text-amber-805 dark:text-amber-205">Invalid Date Range</h4>
+            <p className="text-xs text-slate-550 dark:text-slate-400 mt-1">Start date must be on or before end date.</p>
+          </CardContent>
+        </Card>
+      ) : isError ? (
+        <Card className="py-12 text-center max-w-md mx-auto mt-6 border-rose-200 dark:border-rose-900 bg-rose-50/50 dark:bg-rose-950/20">
+          <CardContent className="flex flex-col items-center justify-center p-8">
+            <FileText className="w-12 h-12 text-rose-500 mb-3" />
+            <h4 className="text-base font-bold text-rose-805 dark:text-rose-205">Error Loading Report</h4>
+            <p className="text-xs text-slate-500 mt-1">An error occurred while compiling transaction data. Please try again.</p>
+          </CardContent>
+        </Card>
       ) : !isDataAvailable ? (
         <Card className="py-12 text-center max-w-md mx-auto mt-6">
           <CardContent className="flex flex-col items-center justify-center p-8">
@@ -355,8 +426,8 @@ export const Reports: React.FC = () => {
                   const catName = cat?.name || 'Uncategorized';
                   const catColor = cat?.color || '#94a3b8';
 
-                  const isExpense = tx.transaction_type === 'expense';
-                  const isIncome = tx.transaction_type === 'income';
+                  const isExpense = tx.transaction_type.toLowerCase() === 'expense';
+                  const isIncome = tx.transaction_type.toLowerCase() === 'income';
 
                   return (
                     <TableRow key={tx.id}>
