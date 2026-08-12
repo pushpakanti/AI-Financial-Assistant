@@ -2,11 +2,13 @@
 
 import json
 import logging
+from datetime import date
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 
 from app.agents.state import AgentOutput, GraphState, skipped_output
 from app.ai.providers.base import LLMProviderError
+from app.memory.memory_models import MemoryType
 from app.prompts import PromptManager
 
 
@@ -25,6 +27,10 @@ def finance_agent(state: GraphState) -> dict[str, object]:
     """Analyze user-scoped financial data and return a stable structured result."""
     if "finance" not in state.get("planned_agents", []):
         return {"finance_result": skipped_output("finance")}
+
+    mutation = state.get("mutation")
+    if isinstance(mutation, dict):
+        return _handle_mutation(state, mutation)
 
     tool_results = _finance_tool_results(state)
     context = _finance_context(tool_results)
@@ -73,6 +79,117 @@ def finance_agent(state: GraphState) -> dict[str, object]:
             data=output_data,
         ).model_dump()
     }
+
+
+_PENDING_OPERATION_KEY = "pending_financial_operation"
+
+
+def _handle_mutation(state: GraphState, mutation: dict[str, Any]) -> dict[str, object]:
+    """Persist, cancel, or execute only a planner-validated mutation intent."""
+    status = mutation.get("status")
+    if status == "confirmation_required":
+        _save_pending(state, mutation)
+        account = mutation["account"]
+        amount = _money(mutation["amount"])
+        balance = Decimal(str(account["balance"]))
+        action = "withdraw" if mutation.get("operation") == "withdrawal" else "record"
+        summary = (
+            f"You want to {action} {amount} "
+            f"{'from' if action == 'withdraw' else 'as an expense from'} {account['name']}.\n\n"
+            f"Current balance: {_money(balance)}\n"
+            f"Balance after {'withdrawal' if action == 'withdraw' else 'recording'}: {_money(balance - Decimal(str(mutation['amount'])))}\n\n"
+            "Should I proceed?"
+        )
+        logger.info("chat_mutation_confirmation_requested operation=%s account_id=%s", mutation.get("operation"), account.get("id"))
+    elif status == "confirmed":
+        pending = mutation.get("pending", {})
+        summary = _execute_pending_withdrawal(state, pending)
+    elif status == "cancelled":
+        pending = mutation.get("pending", {})
+        _clear_pending(state)
+        summary = f"Okay, I cancelled the {pending.get('operation', 'financial operation')}. No changes were made."
+        logger.info("chat_mutation_cancelled operation=%s", pending.get("operation"))
+    elif status == "clarification_required":
+        _save_pending(state, mutation)
+        summary = _clarification(mutation)
+    elif status == "rejected":
+        summary = "That withdrawal cannot be completed because the available account balance is insufficient."
+    else:
+        summary = "I need a clear withdrawal amount and account before I can prepare that operation."
+    return {"finance_result": AgentOutput(agent="finance", status="completed", summary=summary, data={"mutation": mutation}).model_dump()}
+
+
+def _execute_pending_withdrawal(state: GraphState, pending: dict[str, Any]) -> str:
+    if pending.get("user_id") != state["user_id"]:
+        return "That pending operation is not available for this user, so no changes were made."
+    account = pending.get("account") if isinstance(pending.get("account"), dict) else {}
+    try:
+        amount = Decimal(str(pending["amount"]))
+        account_id = int(account["id"])
+    except (KeyError, TypeError, ValueError, InvalidOperation):
+        _clear_pending(state)
+        return "That pending operation is no longer valid, so no changes were made."
+    payload = {
+        "account_id": account_id,
+        "transaction_type": "EXPENSE",
+        "title": pending.get("title") or f"Withdrawal from {account.get('name', 'account')}",
+        "description": pending.get("description") or "Confirmed through AI chat",
+        "amount": str(amount),
+        "transaction_date": date.today().isoformat(),
+        "tags": ["ai-chat", "withdrawal"],
+    }
+    if pending.get("merchant"):
+        payload["merchant"] = pending["merchant"]
+    registry = state.get("tool_registry")
+    result = registry.execute("transaction", state["user_id"], "withdraw", payload) if registry else None
+    if isinstance(result, dict) and result.get("success"):
+        _clear_pending(state)
+        balance = Decimal(str(account.get("balance", 0))) - amount
+        logger.info("chat_mutation_executed operation=%s account_id=%s", pending.get("operation"), account_id)
+        if pending.get("operation") == "expense":
+            return f"Recorded {_money(amount)} expense from {account.get('name', 'your account')}. New balance: {_money(balance)}."
+        return f"Withdrawal complete: {_money(amount)} was debited from {account.get('name', 'your account')}. New balance: {_money(balance)}."
+    error = result.get("error", {}).get("message") if isinstance(result, dict) else None
+    logger.warning("chat_mutation_execution_failed operation=withdrawal account_id=%s", account_id)
+    return f"I couldn’t complete that withdrawal. {error or 'No changes were made.'}"
+
+
+def _save_pending(state: GraphState, mutation: dict[str, Any]) -> None:
+    manager = state.get("memory_manager")
+    if manager is None:
+        raise ValueError("Conversation memory is required before a financial mutation can be confirmed.")
+    records = manager.load_memory(state["user_id"], MemoryType.CONVERSATION, _PENDING_OPERATION_KEY)
+    if records:
+        manager.update_memory(state["user_id"], records[0].id, value=mutation)
+    else:
+        manager.save_memory(state["user_id"], MemoryType.CONVERSATION, _PENDING_OPERATION_KEY, mutation)
+
+
+def _clear_pending(state: GraphState) -> None:
+    manager = state.get("memory_manager")
+    if manager is None:
+        return
+    records = manager.load_memory(state["user_id"], MemoryType.CONVERSATION, _PENDING_OPERATION_KEY)
+    if records:
+        manager.delete_memory(state["user_id"], records[0].id)
+
+
+def _clarification(mutation: dict[str, Any]) -> str:
+    reason = mutation.get("reason")
+    if reason == "account":
+        if mutation.get("operation") == "expense":
+            amount = _money(mutation["amount"])
+            return f"I haven't recorded the transaction yet because I need to know which account to use for this {amount} expense."
+        return "Which account should I use for this withdrawal?"
+    if reason == "amount":
+        return "What amount would you like to withdraw?"
+    if reason == "destination":
+        return "Which account should receive the transfer?"
+    return "Please clarify the financial operation you want to make."
+
+
+def _money(value: Any) -> str:
+    return f"₹{Decimal(str(value)):,.2f}"
 
 
 def _finance_tool_results(state: GraphState) -> list[dict[str, Any]]:

@@ -5,6 +5,7 @@ from decimal import Decimal
 from sqlalchemy import case, exists, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.models.account import Account
 from app.models.transaction import Transaction, TransactionType
 from app.schemas.transaction import TransactionFilter
 
@@ -21,6 +22,19 @@ class TransactionRepository:
         self._db.commit()
         self._db.refresh(transaction)
         return transaction
+
+    def create_with_account_debit(self, transaction: Transaction, account: Account) -> Transaction:
+        """Atomically persist a withdrawal and its corresponding account balance change."""
+        try:
+            self._db.add(transaction)
+            account.balance -= transaction.amount
+            self._db.commit()
+            self._db.refresh(transaction)
+            self._db.refresh(account)
+            return transaction
+        except Exception:
+            self._db.rollback()
+            raise
 
     def get_by_id_and_user_id(self, transaction_id: int, user_id: int) -> Transaction | None:
         """Return a transaction only when it is owned by the supplied user."""

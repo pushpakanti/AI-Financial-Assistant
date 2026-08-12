@@ -28,6 +28,7 @@ class GraphState(TypedDict):
     llm_gateway: NotRequired[Any]
     prompt_manager: NotRequired[Any]
     memory_manager: NotRequired[Any]
+    mutation: NotRequired[dict[str, Any]]
     retrieved_memories: NotRequired[list[dict[str, Any]]]
     tool_results: NotRequired[list[dict[str, Any]]]
     planned_agents: NotRequired[list[AgentName]]

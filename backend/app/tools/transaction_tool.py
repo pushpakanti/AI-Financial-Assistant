@@ -36,6 +36,10 @@ class TransactionTool(BaseTool):
             return TransactionResponse.model_validate(
                 self._service.create_transaction(user_id, TransactionCreate(**payload))
             )
+        if action == "withdraw":
+            return TransactionResponse.model_validate(
+                self._service.create_withdrawal(user_id, TransactionCreate(**payload))
+            )
         if action in {"list", "filter"}:
             filters = TransactionFilter(**payload)
             items, total = self._service.list_transactions(user_id, filters)

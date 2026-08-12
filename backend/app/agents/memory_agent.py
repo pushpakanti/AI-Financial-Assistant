@@ -51,7 +51,8 @@ def memory_agent(state: GraphState) -> dict[str, object]:
         summaries, routing = _agent_summaries(state), _planner_routing(state)
 
     completed_agents = [agent for agent in SUPPORTED_AGENTS if agent in summaries]
-    summary = _retrieved_profile_summary(state.get("request", ""), retrieved_memories) or _summary(
+    general_response = _general_response(state)
+    summary = general_response or _retrieved_profile_summary(state.get("request", ""), retrieved_memories) or _summary(
         persistence_status, len(retrieved_memories), len(newly_stored)
     )
     result = AgentOutput(
@@ -132,6 +133,13 @@ def _planner_routing(state: GraphState) -> list[str]:
     """Return the planner's selected agents in a JSON-safe form."""
     planned_agents = state.get("planned_agents", [])
     return [agent for agent in planned_agents if agent in SUPPORTED_AGENTS]
+
+
+def _general_response(state: GraphState) -> str | None:
+    planner = state.get("planner_result")
+    data = planner.get("data") if isinstance(planner, dict) else None
+    value = data.get("general_response") if isinstance(data, dict) else None
+    return value if isinstance(value, str) else None
 
 
 def _store_conversation(manager: Any, user_id: int, conversation: dict[str, Any]) -> tuple[Any | None, str]:

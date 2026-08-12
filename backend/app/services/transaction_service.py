@@ -1,7 +1,7 @@
 """Business logic for authenticated users' transactions."""
 
 from app.core.exceptions import NotFoundException
-from app.models.transaction import Transaction
+from app.models.transaction import Transaction, TransactionType
 from app.repositories.account_repository import AccountRepository
 from app.repositories.category_repository import CategoryRepository
 from app.repositories.transaction_repository import TransactionRepository
@@ -33,6 +33,22 @@ class TransactionService:
         data = transaction_data.model_dump()
         data["receipt_url"] = str(data["receipt_url"]) if data["receipt_url"] else None
         return self._transaction_repository.create(Transaction(user_id=user_id, **data))
+
+    def create_withdrawal(self, user_id: int, transaction_data: TransactionCreate) -> Transaction:
+        """Record a confirmed debit and decrease the caller-owned account in one commit."""
+        if transaction_data.transaction_type != TransactionType.EXPENSE:
+            raise ValueError("A withdrawal must be recorded as an expense transaction.")
+        account = self._account_repository.get_by_id_and_user_id(transaction_data.account_id, user_id)
+        if account is None:
+            raise NotFoundException("Account not found.")
+        if account.balance < transaction_data.amount:
+            raise ValueError("Insufficient available balance for this withdrawal.")
+        self._require_visible_category(transaction_data.category_id, user_id)
+        data = transaction_data.model_dump()
+        data["receipt_url"] = str(data["receipt_url"]) if data["receipt_url"] else None
+        return self._transaction_repository.create_with_account_debit(
+            Transaction(user_id=user_id, **data), account
+        )
 
     def list_transactions(self, user_id: int, filters: TransactionFilter):
         """List only the caller's transactions with server-side pagination."""

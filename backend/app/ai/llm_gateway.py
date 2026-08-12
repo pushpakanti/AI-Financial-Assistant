@@ -177,7 +177,25 @@ class LLMGateway:
     @staticmethod
     def _provider_selection(prompt: str) -> tuple[str, str]:
         """Choose Gemini only for explicit reasoning-heavy user requests."""
-        request = prompt.split("\n", 1)[0].rsplit(":", 1)[-1].casefold().strip()
+        # Safely extract user request or merchant name based on known prompt construction patterns.
+        request = ""
+        for line in prompt.split("\n"):
+            line_lower = line.lower()
+            if "requested by the user:" in line_lower:
+                request = line.split("requested by the user:", 1)[-1].strip()
+                break
+            elif "reporting context:" in line_lower:
+                request = line.split("reporting context:", 1)[-1].strip()
+                break
+            elif "transaction:" in line_lower:
+                request = line.split("transaction:", 1)[-1].strip()
+                break
+        if not request:
+            # Fallback to the original extraction logic if no specific pattern matches
+            request = prompt.split("\n", 1)[0].rsplit(":", 1)[-1].strip()
+
+        request = request.casefold()
+
         complex_markers = (
             "multi-agent",
             "analysis",
@@ -201,6 +219,8 @@ class LLMGateway:
             "financial health",
             "report",
             "trend",
+            "plan",
+            "planning",
         )
         if any(marker in request for marker in complex_markers):
             return "gemini", "financial_analysis"
