@@ -7,6 +7,8 @@ import { Input } from '../components/ui/Input';
 import { Mail, Lock, User, Sparkles } from 'lucide-react';
 import { motion } from 'framer-motion';
 
+import { Logo } from '../components/ui/Logo';
+
 export const Login: React.FC = () => {
   const { login, register } = useAuth();
   const { showToast } = useToast();
@@ -62,17 +64,20 @@ export const Login: React.FC = () => {
         transition={{ duration: 0.5 }}
         className="w-full max-w-md rounded-3xl glass-card p-8 border border-slate-200/50 dark:border-slate-800/50 shadow-2xl relative z-10"
       >
-        <div className="text-center mb-8">
-          <div className="w-12 h-12 rounded-2xl bg-indigo-650 flex items-center justify-center text-white font-bold text-2xl mx-auto shadow-lg shadow-indigo-600/25 mb-4">
-            F
+        <div className="text-center mb-8 flex flex-col items-center">
+          <div className="w-12 h-12 rounded-2xl bg-indigo-650 flex items-center justify-center text-white mx-auto shadow-lg shadow-indigo-600/25 mb-4 p-2">
+            <Logo className="w-full h-full" />
           </div>
-          <h2 className="text-2xl font-extrabold text-slate-850 dark:text-slate-100 flex items-center justify-center gap-2">
-            {isRegister ? 'Create Account' : 'Sign In'}
-            <Sparkles className="w-5 h-5 text-indigo-500" />
+          <h2 className="text-2xl font-extrabold text-slate-850 dark:text-slate-100 flex items-center justify-center gap-1.5">
+            <span className="text-indigo-500">✦</span> FinMate Copilot
           </h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
-            {isRegister ? 'Join us and manage your finances with AI' : 'Access your personal AI financial assistant'}
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-2 font-medium">
+            Your AI Financial Companion
           </p>
+          <div className="mt-4 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-150/30 dark:border-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-xs font-bold uppercase tracking-wider">
+            {isRegister ? 'Create Account' : 'Sign In'}
+            <Sparkles className="w-3.5 h-3.5" />
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-5">

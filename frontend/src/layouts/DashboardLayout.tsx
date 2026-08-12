@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Notification } from '../types';
+import { Logo } from '../components/ui/Logo';
 
 export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, logout } = useAuth();
@@ -121,13 +122,20 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
     <div className="min-h-screen flex bg-slate-50 dark:bg-slate-950 transition-colors duration-250">
       {/* Sidebar - Desktop */}
       <aside className="hidden lg:flex flex-col w-64 border-r border-slate-200/50 dark:border-slate-850/50 glass-nav z-20">
-        <div className="h-16 flex items-center px-6 gap-2.5 border-b border-slate-200/50 dark:border-slate-850/50">
-          <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold text-lg shadow-md shadow-indigo-600/25">
-            F
+        <div className="h-16 flex items-center px-6 border-b border-slate-200/50 dark:border-slate-850/50">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white p-1.5 shadow-md shadow-indigo-600/25 shrink-0">
+              <Logo className="w-full h-full" />
+            </div>
+            <div className="flex flex-col">
+              <span className="font-bold text-slate-800 dark:text-slate-100 tracking-tight text-md leading-tight">
+                FinMate Copilot
+              </span>
+              <span className="text-[9px] text-slate-400 dark:text-slate-500 font-medium leading-none">
+                Your AI Financial Companion
+              </span>
+            </div>
           </div>
-          <span className="font-bold text-slate-800 dark:text-slate-100 tracking-tight text-lg">
-            AI Finance
-          </span>
         </div>
 
         <nav className="flex-1 px-4 py-6 flex flex-col gap-1.5 overflow-y-auto">
@@ -318,12 +326,17 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
             >
               <div className="h-16 flex items-center justify-between px-6 border-b border-slate-200/50 dark:border-slate-850/50">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold text-lg">
-                    F
+                  <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white p-1.5 shadow-md shadow-indigo-600/25 shrink-0">
+                    <Logo className="w-full h-full" />
                   </div>
-                  <span className="font-bold text-slate-850 dark:text-slate-100 tracking-tight text-lg">
-                    AI Finance
-                  </span>
+                  <div className="flex flex-col">
+                    <span className="font-bold text-slate-850 dark:text-slate-100 tracking-tight text-md leading-tight">
+                      FinMate Copilot
+                    </span>
+                    <span className="text-[9px] text-slate-400 dark:text-slate-500 font-medium leading-none">
+                      Your AI Financial Companion
+                    </span>
+                  </div>
                 </div>
                 <button
                   onClick={() => setIsMobileOpen(false)}

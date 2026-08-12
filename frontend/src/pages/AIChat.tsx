@@ -188,7 +188,7 @@ export const AIChat: React.FC = () => {
           {messages.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
               <Bot className="w-12 h-12 text-indigo-650 dark:text-indigo-400 mb-4 animate-bounce" />
-              <h3 className="text-base font-bold text-slate-850 dark:text-slate-100">AI Financial Co-Pilot</h3>
+              <h3 className="text-base font-bold text-slate-850 dark:text-slate-100">FinMate Copilot</h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 max-w-sm">
                 Ask me questions about your total balance, monthly transactions, savings progress, or request a complete financial report!
               </p>
