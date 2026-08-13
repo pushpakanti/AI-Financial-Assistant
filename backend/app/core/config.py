@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     MYSQL_HOST: str
     MYSQL_PORT: int
     MYSQL_DATABASE: str
+    MYSQL_SSL_CA: str | None = None
 
     SECRET_KEY: str
     ALGORITHM: str
@@ -42,6 +43,10 @@ class Settings(BaseSettings):
     @property
     def database_url(self) -> URL:
         """Return a safely encoded SQLAlchemy MySQL connection URL."""
+        query = {}
+        if self.MYSQL_SSL_CA:
+            query["ssl_ca"] = self.MYSQL_SSL_CA
+
         return URL.create(
             drivername="mysql+pymysql",
             username=self.MYSQL_USER,
@@ -49,6 +54,7 @@ class Settings(BaseSettings):
             host=self.MYSQL_HOST,
             port=self.MYSQL_PORT,
             database=self.MYSQL_DATABASE,
+            query=query,
         )
 
 

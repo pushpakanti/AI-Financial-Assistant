@@ -19,3 +19,5 @@ backend/.env
 # OS
 .DS_Store
 Thumbs.db
+# SSL certificates
+backend/certs/
