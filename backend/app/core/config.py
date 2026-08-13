@@ -1,5 +1,7 @@
 """Application configuration loaded from the backend `.env` file."""
 
+import os
+import tempfile
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -28,7 +30,9 @@ class Settings(BaseSettings):
     MYSQL_HOST: str
     MYSQL_PORT: int
     MYSQL_DATABASE: str
+
     MYSQL_SSL_CA: str | None = None
+    MYSQL_SSL_CA_CONTENT: str | None = None
 
     SECRET_KEY: str
     ALGORITHM: str
@@ -43,8 +47,21 @@ class Settings(BaseSettings):
     @property
     def database_url(self) -> URL:
         """Return a safely encoded SQLAlchemy MySQL connection URL."""
+
         query = {}
-        if self.MYSQL_SSL_CA:
+
+        if self.MYSQL_SSL_CA_CONTENT:
+            ca_file = Path(tempfile.gettempdir()) / "aiven-ca.pem"
+
+            if not ca_file.exists():
+                ca_file.write_text(
+                    self.MYSQL_SSL_CA_CONTENT,
+                    encoding="utf-8",
+                )
+
+            query["ssl_ca"] = str(ca_file)
+
+        elif self.MYSQL_SSL_CA:
             query["ssl_ca"] = self.MYSQL_SSL_CA
 
         return URL.create(
