@@ -143,44 +143,53 @@ export const apiService = {
   },
 
   // Budgets
+  // Budgets
   getBudgets: async (): Promise<Budget[]> => {
     const response = await apiClient.get<Budget[]>('/budgets');
     return response.data;
   },
+
   getBudgetProgress: async (): Promise<BudgetProgress[]> => {
     const response = await apiClient.get<BudgetProgress[]>('/budgets/progress');
     return response.data;
   },
+
   getBudgetSummary: async (): Promise<BudgetSummary> => {
     const response = await apiClient.get<BudgetSummary>('/budgets/summary');
     return response.data;
   },
+
   getBudgetAlerts: async (): Promise<BudgetProgress[]> => {
     const response = await apiClient.get<BudgetProgress[]>('/budgets/alerts');
     return response.data;
   },
+
   createBudget: async (data: {
     name: string;
     category_id: number | null;
+    budget_type: 'MONTHLY' | 'WEEKLY' | 'YEARLY' | 'CUSTOM';
     amount: number;
     start_date: string;
     end_date: string;
-    alert_threshold: number;
+    alert_percentage: number;
   }): Promise<Budget> => {
     const response = await apiClient.post<Budget>('/budgets', data);
     return response.data;
   },
+
   updateBudget: async (id: number, data: Partial<{
     name: string;
     category_id: number | null;
+    budget_type: 'MONTHLY' | 'WEEKLY' | 'YEARLY' | 'CUSTOM';
     amount: number;
     start_date: string;
     end_date: string;
-    alert_threshold: number;
+    alert_percentage: number;
   }>): Promise<Budget> => {
     const response = await apiClient.put<Budget>(`/budgets/${id}`, data);
     return response.data;
   },
+
   deleteBudget: async (id: number): Promise<void> => {
     await apiClient.delete(`/budgets/${id}`);
   },

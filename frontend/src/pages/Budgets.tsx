@@ -123,10 +123,11 @@ export const Budgets: React.FC = () => {
     createMutation.mutate({
       name: formName,
       category_id: formCategory || null,
+      budget_type: 'MONTHLY',
       amount: formAmount,
       start_date: formStartDate,
       end_date: formEndDate,
-      alert_threshold: formThreshold / 100,
+      alert_percentage: formThreshold,
     });
   };
 
@@ -147,10 +148,11 @@ export const Budgets: React.FC = () => {
       data: {
         name: formName,
         category_id: formCategory || null,
+        budget_type: 'MONTHLY',
         amount: formAmount,
         start_date: formStartDate,
         end_date: formEndDate,
-        alert_threshold: formThreshold / 100,
+        alert_percentage: formThreshold,
       },
     });
   };
@@ -162,7 +164,7 @@ export const Budgets: React.FC = () => {
     setFormAmount(budget.amount);
     setFormStartDate(budget.start_date.split('T')[0]);
     setFormEndDate(budget.end_date.split('T')[0]);
-    setFormThreshold(Math.round(budget.alert_threshold * 100));
+    setFormThreshold(Math.round(budget.alert_percentage));
     setIsEditOpen(true);
   };
 
@@ -276,7 +278,7 @@ export const Budgets: React.FC = () => {
             const percent = Math.min(100, Math.round(budget.percentage_used));
             const isWarning = budget.status === 'warned';
             const isExceeded = budget.status === 'exceeded';
-            
+
             let strokeColor = 'border-slate-200 dark:border-slate-800';
             let barColor = 'bg-indigo-600';
             let badgeVariant: any = 'primary';
@@ -353,7 +355,7 @@ export const Budgets: React.FC = () => {
                   <div className="flex justify-between items-center text-[10px] text-slate-450 dark:text-slate-500 font-semibold">
                     <span className="flex items-center gap-1">
                       <Calendar className="w-3.5 h-3.5" />
-                      Alert trigger set at {Math.round(budget.alert_threshold * 100)}%
+                      Alert trigger set at {Math.round(budget.alert_percentage)}%
                     </span>
                     {isExceeded ? (
                       <span className="text-rose-500 font-black flex items-center gap-0.5">

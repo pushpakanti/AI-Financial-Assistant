@@ -75,11 +75,12 @@ export interface Budget {
   id: number;
   name: string;
   category_id: number | null;
+  budget_type: 'MONTHLY' | 'WEEKLY' | 'YEARLY' | 'CUSTOM';
   amount: number;
   category_name?: string;
   start_date: string;
   end_date: string;
-  alert_threshold: number;
+  alert_percentage: number;
   created_at: string;
   updated_at: string;
 }
@@ -88,7 +89,6 @@ export interface BudgetProgress extends Budget {
   spent: number;
   remaining: number;
   percentage_used: number;
-  alert_percentage: number;
   status: BudgetStatus;
 }
 
