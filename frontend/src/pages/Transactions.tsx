@@ -160,15 +160,8 @@ export const Transactions: React.FC = () => {
     },
   });
 
-  // Initialize form default account when accounts load
-  useEffect(() => {
-    if (accounts.length > 0 && formAccount === 0) {
-      setFormAccount(accounts[0].id);
-    }
-  }, [accounts]);
-
   const resetForm = () => {
-    setFormAccount(accounts.length > 0 ? accounts[0].id : 0);
+    setFormAccount(0);
     setFormCategory(undefined);
     setFormType('expense');
     setFormTitle('');
@@ -522,16 +515,23 @@ export const Transactions: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-semibold text-slate-655 dark:text-slate-400">Account</label>
-              <select
-                value={formAccount}
-                onChange={(e) => setFormAccount(Number(e.target.value))}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-350 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
-                required
-              >
-                {accounts.map((a) => (
-                  <option key={a.id} value={a.id}>{a.name} (₹{a.balance})</option>
-                ))}
-              </select>
+              {accounts.length === 0 ? (
+                <div className="p-2.5 bg-rose-50 dark:bg-rose-950/20 text-rose-605 dark:text-rose-400 border border-rose-250/30 rounded-xl text-xs font-semibold">
+                  You don't have any accounts. Please create one first!
+                </div>
+              ) : (
+                <select
+                  value={formAccount || ''}
+                  onChange={(e) => setFormAccount(Number(e.target.value) || 0)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-350 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                  required
+                >
+                  <option value="">-- Select Account --</option>
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>{a.name} (₹{a.balance})</option>
+                  ))}
+                </select>
+              )}
             </div>
 
             <div className="flex flex-col gap-1.5">
@@ -654,16 +654,23 @@ export const Transactions: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-semibold text-slate-655 dark:text-slate-400">Account</label>
-              <select
-                value={formAccount}
-                onChange={(e) => setFormAccount(Number(e.target.value))}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-350 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
-                required
-              >
-                {accounts.map((a) => (
-                  <option key={a.id} value={a.id}>{a.name} (₹{a.balance})</option>
-                ))}
-              </select>
+              {accounts.length === 0 ? (
+                <div className="p-2.5 bg-rose-50 dark:bg-rose-950/20 text-rose-605 dark:text-rose-400 border border-rose-250/30 rounded-xl text-xs font-semibold">
+                  You don't have any accounts. Please create one first!
+                </div>
+              ) : (
+                <select
+                  value={formAccount || ''}
+                  onChange={(e) => setFormAccount(Number(e.target.value) || 0)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-350 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                  required
+                >
+                  <option value="">-- Select Account --</option>
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>{a.name} (₹{a.balance})</option>
+                  ))}
+                </select>
+              )}
             </div>
 
             <div className="flex flex-col gap-1.5">

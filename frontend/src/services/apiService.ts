@@ -22,11 +22,49 @@ import type {
   NotificationPage
 } from '../types';
 
+const mapTypeToFrontend = (type: string): 'income' | 'expense' | 'transfer' => {
+  const lower = type.toLowerCase();
+  if (lower === 'income' || lower === 'expense' || lower === 'transfer') {
+    return lower;
+  }
+  return 'expense'; // fallback
+};
+
+const mapTransactionToFrontend = (tx: any): Transaction => ({
+  ...tx,
+  transaction_type: mapTypeToFrontend(tx.transaction_type),
+});
+
+const mapTransactionPageToFrontend = (page: any): TransactionPage => ({
+  ...page,
+  items: page.items.map(mapTransactionToFrontend),
+});
+
+const mapRecentTransactionToFrontend = (tx: any): any => {
+  if (!tx) return tx;
+  return {
+    ...tx,
+    transaction_type: mapTypeToFrontend(tx.transaction_type),
+  };
+};
+
 export const apiService = {
   // Dashboard
   getDashboard: async (): Promise<DashboardData> => {
-    const response = await apiClient.get<DashboardData>('/dashboard');
-    return response.data;
+    const response = await apiClient.get<any>('/dashboard');
+    const data = response.data;
+    if (data.recent_activity) {
+      if (data.recent_activity.recent_transactions) {
+        data.recent_activity.recent_transactions = data.recent_activity.recent_transactions.map(mapRecentTransactionToFrontend);
+      }
+      if (data.recent_activity.largest_expense) {
+        data.recent_activity.largest_expense = mapRecentTransactionToFrontend(data.recent_activity.largest_expense);
+      }
+      if (data.recent_activity.largest_income) {
+        data.recent_activity.largest_income = mapRecentTransactionToFrontend(data.recent_activity.largest_income);
+      }
+    }
+    return data as DashboardData;
   },
 
   // Accounts
@@ -86,12 +124,16 @@ export const apiService = {
     limit?: number;
     offset?: number;
   }): Promise<TransactionPage> => {
-    const response = await apiClient.get<TransactionPage>('/transactions', { params });
-    return response.data;
+    const formattedParams = params ? {
+      ...params,
+      transaction_type: params.transaction_type ? params.transaction_type.toUpperCase() : undefined
+    } : undefined;
+    const response = await apiClient.get<any>('/transactions', { params: formattedParams });
+    return mapTransactionPageToFrontend(response.data);
   },
   searchTransactions: async (params: { query: string; limit?: number; offset?: number }): Promise<TransactionPage> => {
-    const response = await apiClient.get<TransactionPage>('/transactions/search', { params });
-    return response.data;
+    const response = await apiClient.get<any>('/transactions/search', { params });
+    return mapTransactionPageToFrontend(response.data);
   },
   getTransactionSummary: async (params?: {
     account_id?: number;
@@ -101,7 +143,11 @@ export const apiService = {
     end_date?: string;
     merchant?: string;
   }): Promise<TransactionSummary> => {
-    const response = await apiClient.get<TransactionSummary>('/transactions/summary', { params });
+    const formattedParams = params ? {
+      ...params,
+      transaction_type: params.transaction_type ? params.transaction_type.toUpperCase() : undefined
+    } : undefined;
+    const response = await apiClient.get<TransactionSummary>('/transactions/summary', { params: formattedParams });
     return response.data;
   },
   createTransaction: async (data: {
@@ -118,8 +164,12 @@ export const apiService = {
     tags?: string[];
     receipt_url?: string;
   }): Promise<Transaction> => {
-    const response = await apiClient.post<Transaction>('/transactions', data);
-    return response.data;
+    const formattedData = {
+      ...data,
+      transaction_type: data.transaction_type.toUpperCase()
+    };
+    const response = await apiClient.post<any>('/transactions', formattedData);
+    return mapTransactionToFrontend(response.data);
   },
   updateTransaction: async (id: number, data: Partial<{
     account_id: number;
@@ -135,8 +185,12 @@ export const apiService = {
     tags: string[];
     receipt_url: string | null;
   }>): Promise<Transaction> => {
-    const response = await apiClient.put<Transaction>(`/transactions/${id}`, data);
-    return response.data;
+    const formattedData = {
+      ...data,
+      transaction_type: data.transaction_type ? data.transaction_type.toUpperCase() : undefined
+    };
+    const response = await apiClient.put<any>(`/transactions/${id}`, formattedData);
+    return mapTransactionToFrontend(response.data);
   },
   deleteTransaction: async (id: number): Promise<void> => {
     await apiClient.delete(`/transactions/${id}`);
@@ -245,12 +299,19 @@ export const apiService = {
     formData.append('file', file);
     formData.append('account_id', accountId.toString());
 
-    const response = await apiClient.post<StatementUploadPreview>('/statements/upload', formData, {
+    const response = await apiClient.post<any>('/statements/upload', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
     });
-    return response.data;
+    const data = response.data;
+    if (data.preview_transactions) {
+      data.preview_transactions = data.preview_transactions.map((tx: any) => ({
+        ...tx,
+        transaction_type: tx.transaction_type ? mapTypeToFrontend(tx.transaction_type) : null,
+      }));
+    }
+    return data as StatementUploadPreview;
   },
   importStatement: async (statementId: number): Promise<StatementImportResponse> => {
     const response = await apiClient.post<StatementImportResponse>(`/statements/${statementId}/import`);
