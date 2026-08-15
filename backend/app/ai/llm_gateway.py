@@ -229,6 +229,8 @@ class LLMGateway:
             "trend",
             "plan",
             "planning",
+            "afford",
+            "affordable",
         )
         if any(marker in request for marker in complex_markers):
             return "gemini", "financial_analysis"

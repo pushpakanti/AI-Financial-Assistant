@@ -83,6 +83,8 @@ class FakeRegistry:
             }
         if (tool, action) == ("dashboard", "get"):
             return {"success": True, "tool": tool, "action": action, "data": {"user_summary": {}}}
+        if (tool, action) in (("transaction", "list"), ("transaction", "filter")):
+            return {"success": True, "tool": tool, "action": action, "data": {"items": [], "total": 0}}
         raise AssertionError(f"Unexpected tool call: {tool}/{action}")
 
 
@@ -218,6 +220,53 @@ class ConversationalFinanceTests(unittest.TestCase):
         # Test Groq selection for simple lookups
         self.assertEqual(gateway._preferred_provider_name("What is my balance?"), "groq")
         self.assertEqual(gateway._preferred_provider_name("Show my transactions"), "groq")
+
+    def test_affordability_and_general_intents(self):
+        # 1. "Can I afford ₹10,000 this month?"
+        state_1 = self.state("Can I afford ₹10,000 this month?")
+        planned_1 = planner_agent(state_1)
+        self.assertIn("finance", planned_1["planned_agents"])
+
+        # 2. "Do I have enough money for ₹5,000?"
+        state_2 = self.state("Do I have enough money for ₹5,000?")
+        planned_2 = planner_agent(state_2)
+        self.assertIn("finance", planned_2["planned_agents"])
+
+        # 3. "Can I afford this purchase?" (Finance agent selected, asks for amount)
+        state_3 = self.state("Can I afford this purchase?")
+        planned_3 = planner_agent(state_3)
+        self.assertIn("finance", planned_3["planned_agents"])
+        
+        # Now execute the finance agent with planned agents set
+        # Since no LLM is running here, it will use deterministic fallback.
+        from app.agents.finance_agent import finance_agent
+        res_3 = finance_agent({**state_3, "planned_agents": planned_3["planned_agents"]})
+        self.assertIn("please tell me the amount", res_3["finance_result"]["summary"])
+
+        # 4. "What are my biggest expenses this month?"
+        state_4 = self.state("What are my biggest expenses this month?")
+        planned_4 = planner_agent(state_4)
+        self.assertIn("finance", planned_4["planned_agents"])
+
+        # 5. "What is my budget remaining?"
+        state_5 = self.state("What is my budget remaining?")
+        planned_5 = planner_agent(state_5)
+        self.assertIn("budget", planned_5["planned_agents"])
+
+        # 6. "What are my savings goals?"
+        state_6 = self.state("What are my savings goals?")
+        planned_6 = planner_agent(state_6)
+        self.assertIn("goal", planned_6["planned_agents"])
+
+        # 7. "Give me a financial report."
+        state_7 = self.state("Give me a financial report.")
+        planned_7 = planner_agent(state_7)
+        self.assertIn("report", planned_7["planned_agents"])
+
+        # 8. "Hello"
+        state_8 = self.state("Hello")
+        planned_8 = planner_agent(state_8)
+        self.assertEqual(planned_8["planned_agents"], [])
 
 
 if __name__ == "__main__":

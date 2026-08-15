@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from datetime import date
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
@@ -34,11 +35,34 @@ def finance_agent(state: GraphState) -> dict[str, object]:
 
     tool_results = _finance_tool_results(state)
     context = _finance_context(tool_results)
-    llm_context = _minimal_finance_context(context, state.get("request", ""))
+    
+    request = state.get("request", "")
+    is_affordability = _is_affordability_question(request)
+    if is_affordability:
+        analysis = _calculate_affordability(request, context)
+        context["affordability_analysis"] = analysis
+
     prompt_manager = state.get("prompt_manager") or _prompt_manager
     rendered_prompt = prompt_manager.render_agent_prompt(
-        "finance", variables={"request": state.get("request", "")}
+        "finance", variables={"request": request}
     )
+
+    if is_affordability and not context["affordability_analysis"].get("has_amount"):
+        output_data = {
+            "raw_tool_data": tool_results,
+            "finance_context": context,
+            "prompt": {"version": rendered_prompt.version, "locale": rendered_prompt.locale},
+        }
+        return {
+            "finance_result": AgentOutput(
+                agent="finance",
+                status="completed",
+                summary="To check if you can afford this purchase, please tell me the amount you're planning to spend.",
+                data=output_data,
+            ).model_dump()
+        }
+
+    llm_context = _minimal_finance_context(context, request)
     analysis_prompt = _analysis_prompt(rendered_prompt.content, llm_context)
 
     output_data: dict[str, Any] = {
@@ -218,6 +242,9 @@ def _finance_tool_actions(request: str) -> tuple[tuple[str, str], ...]:
         for tool_action, keywords in _FINANCE_KEYWORDS.items()
         if any(keyword in normalized_request for keyword in keywords)
     )
+    if _is_affordability_question(normalized_request):
+        selected = tuple(dict.fromkeys((*selected, ("account", "list"), ("dashboard", "get"))))
+        return selected
     if _is_budget_spending_comparison(normalized_request):
         selected = tuple(action for action in selected if action != ("transaction", "list"))
         return tuple(dict.fromkeys((*selected, ("transaction", "summary"), ("dashboard", "get"))))
@@ -270,6 +297,8 @@ def _minimal_finance_context(context: dict[str, Any], request: str) -> dict[str,
         # This is the only comparison source supplied to the model: actual
         # spending is always transaction-derived, never a budget aggregate.
         result["budget_spending_comparison"] = comparison
+    if "affordability_analysis" in context:
+        result["affordability_analysis"] = context["affordability_analysis"]
     return result
 
 
@@ -418,8 +447,21 @@ def _without_metadata(value: Any) -> Any:
 def _analysis_prompt(rendered_prompt: str, context: dict[str, Any]) -> str:
     """Append trusted tool data and concise output instructions to the managed prompt."""
     serialized_context = json.dumps(context, ensure_ascii=False, default=str)
+    
+    affordability_instruction = ""
+    if "affordability_analysis" in context:
+        affordability_instruction = (
+            "\nFor affordability questions, clearly explain:\n"
+            "- The requested amount.\n"
+            "- The user's available/current financial position (such as total balance across accounts, monthly income, and monthly expenses).\n"
+            "- Whether the purchase appears affordable and why (being conservative, and warning the user if their balance is barely enough or if monthly expenses are high/negative cash flow).\n"
+            "- The remaining balance after the purchase when it can be calculated reliably.\n"
+            "If there is not enough reliable information (e.g. no accounts or no balance information), state that clearly and explain what is missing rather than guessing.\n"
+        )
+        
     return (
         f"{rendered_prompt}\n\n"
+        f"{affordability_instruction}"
         "Use only the following user-scoped financial context. Do not invent values. "
         "For budget-spending comparisons, use budget_spending_comparison exactly: actual_spending is computed only from transactions; never use budget fields as spending. "
         "If it includes a consistency_note, state it plainly without guessing a cause. "
@@ -433,6 +475,8 @@ def _analysis_prompt(rendered_prompt: str, context: dict[str, Any]) -> str:
 
 def _deterministic_summary(context: dict[str, Any]) -> str:
     """Provide a useful answer when no configured LLM can return one."""
+    if "affordability_analysis" in context:
+        return _deterministic_affordability_summary(context["affordability_analysis"])
     dashboard = context.get("dashboard") or {}
     dashboard_summary = dashboard.get("user_summary", {}) if isinstance(dashboard, dict) else {}
     transactions = context.get("transactions") or {}
@@ -463,4 +507,144 @@ def _deterministic_summary(context: dict[str, Any]) -> str:
         )
     if len(parts) == 1:
         parts.append("No financial records were available to analyze yet.")
+    return " ".join(parts)
+
+
+def _is_affordability_question(request: str) -> bool:
+    """Identify affordability questions."""
+    normalized = request.casefold()
+    if "afford" in normalized or "affordable" in normalized:
+        return True
+    if "enough money" in normalized or "enough balance" in normalized or "have enough" in normalized:
+        return True
+    if "can i spend" in normalized:
+        return True
+    return False
+
+
+def _parse_amount(request: str) -> Decimal | None:
+    """Parse a valid non-zero Decimal amount from user input."""
+    match = re.search(r"(?:₹|â‚¹|inr\s*)?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)", request, re.IGNORECASE)
+    if not match:
+        return None
+    try:
+        amount = Decimal(match.group(1).replace(",", ""))
+        return amount if amount > 0 else None
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _calculate_affordability(request: str, context: dict[str, Any]) -> dict[str, Any]:
+    """Calculate affordability analysis based on request and current context."""
+    amount = _parse_amount(request)
+    if amount is None:
+        return {
+            "has_amount": False,
+            "has_reliable_info": False,
+            "missing_info": ["requested amount"],
+        }
+
+    accounts = context.get("accounts")
+    dashboard = context.get("dashboard") or {}
+    user_summary = dashboard.get("user_summary") or {}
+
+    missing = []
+    if accounts is None:
+        missing.append("account balance details")
+    if not user_summary:
+        missing.append("monthly financial summary")
+
+    if missing:
+        return {
+            "has_amount": True,
+            "requested_amount": str(amount),
+            "has_reliable_info": False,
+            "missing_info": missing,
+        }
+
+    total_balance = Decimal("0.00")
+    for acc in accounts:
+        if isinstance(acc, dict):
+            bal = acc.get("balance")
+            if bal is not None:
+                try:
+                    total_balance += Decimal(str(bal))
+                except (InvalidOperation, ValueError, TypeError):
+                    pass
+
+    remaining = total_balance - amount
+
+    monthly_income = None
+    monthly_expense = None
+    mi = user_summary.get("monthly_income")
+    me = user_summary.get("monthly_expense")
+    if mi is not None:
+        try:
+            monthly_income = Decimal(str(mi))
+        except (InvalidOperation, ValueError, TypeError):
+            pass
+    if me is not None:
+        try:
+            monthly_expense = Decimal(str(me))
+        except (InvalidOperation, ValueError, TypeError):
+            pass
+
+    is_affordable = remaining >= 0
+
+    return {
+        "has_amount": True,
+        "requested_amount": str(amount),
+        "has_reliable_info": True,
+        "total_balance": str(total_balance),
+        "remaining_balance": str(remaining),
+        "monthly_income": str(monthly_income) if monthly_income is not None else None,
+        "monthly_expense": str(monthly_expense) if monthly_expense is not None else None,
+        "is_affordable": is_affordable,
+    }
+
+
+def _deterministic_affordability_summary(analysis: dict[str, Any]) -> str:
+    """Provide a deterministic summary for affordability checks."""
+    if not analysis.get("has_amount"):
+        return "To check if you can afford this purchase, please tell me the amount you're planning to spend."
+
+    if not analysis.get("has_reliable_info"):
+        return (
+            "I don't have enough reliable financial information to determine affordability. "
+            f"Missing: {', '.join(analysis.get('missing_info', []))}."
+        )
+
+    amount = Decimal(str(analysis["requested_amount"]))
+    total_balance = Decimal(str(analysis["total_balance"]))
+    remaining = Decimal(str(analysis["remaining_balance"]))
+
+    formatted_amount = f"₹{amount:,.2f}"
+    formatted_balance = f"₹{total_balance:,.2f}"
+    formatted_remaining = f"₹{remaining:,.2f}"
+
+    parts = []
+    parts.append(f"Requested amount: {formatted_amount}.")
+    parts.append(f"Current total balance: {formatted_balance}.")
+
+    monthly_income = analysis.get("monthly_income")
+    monthly_expense = analysis.get("monthly_expense")
+    if monthly_income is not None and monthly_expense is not None:
+        parts.append(
+            f"Monthly income: ₹{Decimal(str(monthly_income)):,.2f}; "
+            f"Monthly expenses: ₹{Decimal(str(monthly_expense)):,.2f}."
+        )
+
+    if total_balance < amount:
+        parts.append(
+            f"This purchase does not appear affordable because the requested amount exceeds your total balance by ₹{(amount - total_balance):,.2f}."
+        )
+    else:
+        parts.append(f"This purchase appears affordable. Your remaining balance after this purchase would be {formatted_remaining}.")
+        if monthly_expense is not None and remaining < Decimal(str(monthly_expense)):
+            parts.append(
+                f"Warning: Your remaining balance ({formatted_remaining}) would be less than your current monthly expenses (₹{Decimal(str(monthly_expense)):,.2f}). Proceed with caution."
+            )
+        elif monthly_income is not None and monthly_expense is not None and Decimal(str(monthly_income)) < Decimal(str(monthly_expense)):
+            parts.append("Warning: Your monthly net cash flow is currently negative. Proceed with caution.")
+
     return " ".join(parts)

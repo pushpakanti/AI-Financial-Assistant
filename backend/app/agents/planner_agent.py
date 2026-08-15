@@ -15,6 +15,7 @@ _ROUTING_KEYWORDS: dict[str, tuple[str, ...]] = {
         "finance", "transaction", "income", "expense", "cash flow", "account", "balance",
         "spending", "spent", "merchant", "category",
         "invest", "portfolio", "sip", "stock", "equity", "shares", "mutual fund", "plan",
+        "afford", "affordable", "affordability", "enough money", "enough balance", "spend",
     ),
     "budget": ("budget", "remaining budget", "budget left", "budget is left", "budget summary", "budget alerts", "alert"),
     "goal": ("goal", "savings goal", "prediction", "recommendation", "save", "saving", "target"),
@@ -291,16 +292,32 @@ def _general_response(request: str) -> str:
     return "Hello! I’m your AI financial assistant. How can I help with your finances today?"
 
 
+def _is_affordability_question(request: str) -> bool:
+    """Identify affordability questions."""
+    normalized = request.casefold()
+    if "afford" in normalized or "affordable" in normalized:
+        return True
+    if "enough money" in normalized or "enough balance" in normalized or "have enough" in normalized:
+        return True
+    if "can i spend" in normalized:
+        return True
+    return False
+
+
 def _invoke_tools(state: GraphState, request: str) -> list[dict[str, object]]:
     """Invoke only registered tools; the planner never reaches into persistence directly."""
     registry = state.get("tool_registry")
     if registry is None:
         return []
     results: list[dict[str, object]] = []
+    is_affordability = _is_affordability_question(request)
     for tool_name, keywords, action in _TOOL_ROUTING:
         if _is_budget_spending_comparison(request) and (tool_name, action) == ("transaction", "list"):
             continue
-        if any(keyword in request for keyword in keywords):
+        should_invoke = any(keyword in request for keyword in keywords)
+        if is_affordability and (tool_name, action) in (("account", "list"), ("dashboard", "get")):
+            should_invoke = True
+        if should_invoke:
             results.append(registry.execute(tool_name, state["user_id"], action, {}))
     # A comparison needs an authoritative expense aggregate.  A paginated list
     # cannot safely stand in for total spending.
