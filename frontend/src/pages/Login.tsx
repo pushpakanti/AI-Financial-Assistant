@@ -85,7 +85,7 @@ export const Login: React.FC = () => {
             <Input
               label="Full Name"
               type="text"
-              placeholder="John Doe"
+              placeholder="Enter Your Name"
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
               leftIcon={<User className="w-4 h-4" />}
