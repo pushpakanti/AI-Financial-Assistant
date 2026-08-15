@@ -34,7 +34,10 @@ apiClient.interceptors.response.use(
         window.dispatchEvent(new Event('auth-expired'));
       }
       return Promise.reject({
-        message: error.response.data?.detail || 'An error occurred on the server.',
+        message:
+          error.response.data?.message ||
+          error.response.data?.errors?.detail ||
+          'An error occurred on the server.',
         status: error.response.status,
         data: error.response.data,
       });
