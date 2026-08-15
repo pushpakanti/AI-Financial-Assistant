@@ -1,6 +1,7 @@
 """FastAPI application entry point."""
 
 import logging
+import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,10 +28,11 @@ register_exception_handlers(app)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:5174",
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:5174",
+    "https://ai-financial-assistant-qr33.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -63,4 +65,11 @@ def log_groq_startup_diagnostic() -> None:
 @app.get("/", tags=["health"])
 def read_root() -> dict[str, str]:
     """Return a minimal service status response."""
-    return {"message": f"{settings.APP_NAME} is running"}
+    ca_path = os.getenv("MYSQL_SSL_CA")
+
+    return {
+        "message": f"{settings.APP_NAME} is running",
+        "mysql_ssl_ca_configured": str(bool(ca_path)),
+        "mysql_ssl_ca_path": ca_path or "NOT_SET",
+        "ca_file_exists": str(bool(ca_path and os.path.isfile(ca_path))),
+    }
