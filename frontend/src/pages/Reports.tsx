@@ -11,15 +11,18 @@ import {
   AlertTriangle,
   BarChart3,
   Calendar,
+  CreditCard,
   Download,
   FileText,
   Loader2,
+  Percent,
   PieChart as PieIcon,
   TrendingDown,
   TrendingUp,
   Wallet
 } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
+
 
 export const Reports: React.FC = () => {
   const toast = useToast();
@@ -112,6 +115,40 @@ export const Reports: React.FC = () => {
   // Metrics computation
   let totalIncome = 0;
   let totalExpense = 0;
+
+  // Number/currency formatting helper
+  const formatCurrency = (val: number): string => {
+    const absVal = Math.abs(val);
+    const formatted = new Intl.NumberFormat('en-IN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }).format(absVal);
+    return `${val < 0 ? '-' : ''}₹${formatted}`;
+  };
+
+  const TASTEFUL_COLORS = [
+    '#6366f1', // Indigo
+    '#10b981', // Emerald
+    '#f59e0b', // Amber/Orange
+    '#ec4899', // Pink
+    '#3b82f6', // Blue
+    '#8b5cf6', // Violet
+    '#f43f5e', // Rose
+    '#06b6d4', // Cyan
+    '#14b8a6', // Teal
+    '#a855f7', // Purple
+  ];
+
+  // Map category IDs to distinct colors
+  const categoryColorMap: Record<number, string> = {};
+  categories.forEach((cat, index) => {
+    const isGray = !cat.color || cat.color === '#94a3b8' || cat.color.toLowerCase() === '#cbd5e1' || cat.color.toLowerCase() === '#e2e8f0';
+    categoryColorMap[cat.id] = isGray
+      ? TASTEFUL_COLORS[index % TASTEFUL_COLORS.length]
+      : (cat.color || '#94a3b8');
+  });
+  categoryColorMap[0] = '#94a3b8'; // Uncategorized
+
   const categorySums: Record<number, { name: string; amount: number; color: string }> = {};
 
   transactions.forEach((tx) => {
@@ -127,7 +164,7 @@ export const Reports: React.FC = () => {
       const catId = tx.category_id || 0;
       const cat = categories.find((c) => c.id === catId);
       const catName = cat?.name || 'Uncategorized';
-      const catColor = cat?.color || '#94a3b8';
+      const catColor = categoryColorMap[catId] || '#94a3b8';
 
       if (!categorySums[catId]) {
         categorySums[catId] = { name: catName, amount: 0, color: catColor };
@@ -142,11 +179,11 @@ export const Reports: React.FC = () => {
   // Chart Data preparation
   const chartData = Object.values(categorySums).map((cat) => ({
     name: cat.name,
-    value: Math.round(cat.amount),
+    value: cat.amount,
     color: cat.color,
   })).sort((a, b) => b.value - a.value);
 
-  const COLORS = ['#4f46e5', '#8b5cf6', '#ec4899', '#f43f5e', '#f59e0b', '#10b981', '#06b6d4', '#3b82f6'];
+  const COLORS = TASTEFUL_COLORS;
 
   const handlePrint = () => {
     window.print();
@@ -269,59 +306,87 @@ export const Reports: React.FC = () => {
         <div className="flex flex-col gap-6">
           {/* Metrics row */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-            <Card>
-              <CardContent className="flex flex-col text-left">
-                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                  Period Income
-                </span>
-                <span className="text-2xl font-black text-slate-850 dark:text-slate-100 mt-1 text-emerald-650">
-                  ₹{totalIncome}
-                </span>
-                <span className="text-[10px] text-slate-400 mt-1 flex items-center gap-1 font-medium">
-                  <TrendingUp className="w-3.5 h-3.5" /> Direct inflows
-                </span>
+            <Card className="border border-emerald-500/10 dark:border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.03)] hover:border-emerald-500/20 transition-all duration-300">
+              <CardContent className="flex items-start justify-between">
+                <div className="flex flex-col text-left">
+                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                    Period Income
+                  </span>
+                  <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-2">
+                    {formatCurrency(totalIncome)}
+                  </span>
+                  <span className="text-[10px] text-slate-400 mt-2 flex items-center gap-1 font-medium">
+                    <TrendingUp className="w-3.5 h-3.5 text-emerald-500" /> Direct inflows
+                  </span>
+                </div>
+                <div className="bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 p-2.5 rounded-xl shrink-0">
+                  <TrendingUp className="w-5 h-5" />
+                </div>
               </CardContent>
             </Card>
 
-            <Card>
-              <CardContent className="flex flex-col text-left">
-                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                  Period Expenses
-                </span>
-                <span className="text-2xl font-black text-slate-850 dark:text-slate-100 mt-1 text-rose-600">
-                  ₹{totalExpense}
-                </span>
-                <span className="text-[10px] text-slate-400 mt-1 flex items-center gap-1 font-medium">
-                  <TrendingDown className="w-3.5 h-3.5" /> Total spent
-                </span>
+            <Card className="border border-rose-500/10 dark:border-rose-500/20 shadow-[0_0_15px_rgba(244,63,94,0.03)] hover:border-rose-500/20 transition-all duration-300">
+              <CardContent className="flex items-start justify-between">
+                <div className="flex flex-col text-left">
+                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                    Period Expenses
+                  </span>
+                  <span className="text-2xl font-black text-rose-600 dark:text-rose-400 mt-2">
+                    {formatCurrency(totalExpense)}
+                  </span>
+                  <span className="text-[10px] text-slate-400 mt-2 flex items-center gap-1 font-medium">
+                    <TrendingDown className="w-3.5 h-3.5 text-rose-500" /> Total spent
+                  </span>
+                </div>
+                <div className="bg-rose-500/10 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400 p-2.5 rounded-xl shrink-0">
+                  <TrendingDown className="w-5 h-5" />
+                </div>
               </CardContent>
             </Card>
 
-            <Card>
-              <CardContent className="flex flex-col text-left">
-                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                  Net Savings
-                </span>
-                <span className={`text-2xl font-black mt-1 ${netSavings < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                  ₹{netSavings}
-                </span>
-                <span className="text-[10px] text-slate-400 mt-1 font-medium">
-                  Remaining net profit
-                </span>
+            <Card className="border border-emerald-500/20 dark:border-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.08)] hover:border-emerald-500/40 transition-all duration-300">
+              <CardContent className="flex items-start justify-between">
+                <div className="flex flex-col text-left">
+                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                    Net Savings
+                  </span>
+                  <span className={`text-2xl font-black mt-2 ${netSavings < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                    {formatCurrency(netSavings)}
+                  </span>
+                  <span className="text-[10px] text-slate-400 mt-2 flex items-center gap-1 font-medium">
+                    {netSavings < 0 ? (
+                      <>
+                        <TrendingDown className="w-3.5 h-3.5 text-rose-500" /> Remaining net deficit
+                      </>
+                    ) : (
+                      <>
+                        <Wallet className="w-3.5 h-3.5 text-emerald-500" /> Remaining net profit
+                      </>
+                    )}
+                  </span>
+                </div>
+                <div className={`${netSavings < 0 ? 'bg-rose-500/15 dark:bg-rose-500/25 text-rose-600 dark:text-rose-400' : 'bg-emerald-500/15 dark:bg-emerald-500/25 text-emerald-600 dark:text-emerald-400'} p-2.5 rounded-xl shrink-0`}>
+                  <Wallet className="w-5 h-5" />
+                </div>
               </CardContent>
             </Card>
 
-            <Card>
-              <CardContent className="flex flex-col text-left">
-                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                  Savings Rate Ratio
-                </span>
-                <span className="text-2xl font-black text-slate-855 dark:text-slate-100 mt-1">
-                  {savingsRate}%
-                </span>
-                <span className="text-[10px] text-slate-400 mt-1 font-medium">
-                  Percent of income preserved
-                </span>
+            <Card className="border border-indigo-500/10 dark:border-indigo-500/20 shadow-[0_0_15px_rgba(99,102,241,0.03)] hover:border-indigo-500/20 transition-all duration-300">
+              <CardContent className="flex items-start justify-between">
+                <div className="flex flex-col text-left">
+                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                    Savings Rate Ratio
+                  </span>
+                  <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-2">
+                    {savingsRate}%
+                  </span>
+                  <span className="text-[10px] text-slate-400 mt-2 flex items-center gap-1 font-medium">
+                    <Percent className="w-3.5 h-3.5 text-indigo-500" /> Percent of income preserved
+                  </span>
+                </div>
+                <div className="bg-indigo-500/10 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 p-2.5 rounded-xl shrink-0">
+                  <Percent className="w-5 h-5" />
+                </div>
               </CardContent>
             </Card>
           </div>
@@ -360,7 +425,7 @@ export const Reports: React.FC = () => {
                               <Cell key={`cell-${index}`} fill={entry.color || COLORS[index % COLORS.length]} />
                             ))}
                           </Pie>
-                          <Tooltip formatter={(value: any) => `₹${value}`} />
+                          <Tooltip formatter={(value: any) => formatCurrency(Number(value) || 0)} />
                         </PieChart>
                       </ResponsiveContainer>
                     </div>
@@ -372,7 +437,7 @@ export const Reports: React.FC = () => {
                             style={{ backgroundColor: item.color || COLORS[idx % COLORS.length] }}
                           />
                           <span className="truncate max-w-[100px]">{item.name}</span>
-                          <span className="text-slate-400 ml-auto font-medium">₹{item.value}</span>
+                          <span className="text-slate-400 ml-auto font-medium">{formatCurrency(item.value)}</span>
                         </div>
                       ))}
                     </div>
@@ -382,7 +447,7 @@ export const Reports: React.FC = () => {
             </Card>
 
             {/* Account Balances list */}
-            <Card>
+            <Card className="border border-indigo-500/5 dark:border-indigo-500/10 shadow-[0_0_15px_rgba(99,102,241,0.02)]">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Wallet className="w-5 h-5 text-indigo-500" />
@@ -397,13 +462,18 @@ export const Reports: React.FC = () => {
                 ) : (
                   <div className="flex flex-col gap-3">
                     {accounts.map((acc) => (
-                      <div key={acc.id} className="flex items-center justify-between p-3.5 bg-slate-50/50 dark:bg-slate-900/40 border border-slate-150/40 dark:border-slate-800/40 rounded-xl">
-                        <div className="flex flex-col text-left">
-                          <span className="text-xs font-bold text-slate-805 dark:text-slate-205">{acc.name}</span>
-                          <span className="text-[9px] uppercase font-bold text-slate-400 mt-0.5 tracking-wider">{acc.account_type}</span>
+                      <div key={acc.id} className="flex items-center justify-between p-3.5 bg-slate-50/50 dark:bg-indigo-950/10 hover:bg-indigo-950/20 border border-slate-150/40 dark:border-indigo-500/20 rounded-xl transition-all duration-200">
+                        <div className="flex items-center gap-3">
+                          <div className="bg-indigo-500/10 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 p-2 rounded-lg shrink-0">
+                            <CreditCard className="w-4 h-4" />
+                          </div>
+                          <div className="flex flex-col text-left">
+                            <span className="text-xs font-bold text-slate-805 dark:text-slate-205">{acc.name}</span>
+                            <span className="text-[9px] uppercase font-bold text-slate-400 mt-0.5 tracking-wider">{acc.account_type}</span>
+                          </div>
                         </div>
                         <span className="text-sm font-black text-slate-805 dark:text-slate-50">
-                          ₹{acc.balance}
+                          {formatCurrency(Number(acc.balance) || 0)}
                         </span>
                       </div>
                     ))}
@@ -422,15 +492,14 @@ export const Reports: React.FC = () => {
               <Table headers={['Date', 'Title', 'Category', 'Account', 'Merchant', 'Type', 'Amount']}>
                 {transactions.slice(0, 50).map((tx) => {
                   const accName = accounts.find((a) => a.id === tx.account_id)?.name || `Account #${tx.account_id}`;
-                  const cat = categories.find((c) => c.id === tx.category_id);
-                  const catName = cat?.name || 'Uncategorized';
-                  const catColor = cat?.color || '#94a3b8';
+                  const catColor = categoryColorMap[tx.category_id || 0] || '#94a3b8';
+                  const catName = categories.find((c) => c.id === tx.category_id)?.name || 'Uncategorized';
 
                   const isExpense = tx.transaction_type.toLowerCase() === 'expense';
                   const isIncome = tx.transaction_type.toLowerCase() === 'income';
 
                   return (
-                    <TableRow key={tx.id}>
+                    <TableRow key={tx.id} className="hover:bg-slate-100/30 dark:hover:bg-indigo-950/10 transition-colors">
                       <TableCell className="whitespace-nowrap font-medium text-slate-500">
                         {new Date(tx.transaction_date).toLocaleDateString()}
                       </TableCell>
@@ -448,8 +517,8 @@ export const Reports: React.FC = () => {
                           {tx.transaction_type}
                         </Badge>
                       </TableCell>
-                      <TableCell className={`font-black whitespace-nowrap text-right ${isIncome ? 'text-emerald-600' : isExpense ? 'text-rose-600' : 'text-slate-700 dark:text-slate-300'}`}>
-                        {isIncome ? '+' : isExpense ? '-' : ''}₹{tx.amount}
+                      <TableCell className={`font-black whitespace-nowrap text-right ${isIncome ? 'text-emerald-600 dark:text-emerald-400' : isExpense ? 'text-rose-600 dark:text-rose-400' : 'text-slate-700 dark:text-slate-300'}`}>
+                        {isIncome ? '+' : isExpense ? '-' : ''}{formatCurrency(Number(tx.amount) || 0)}
                       </TableCell>
                     </TableRow>
                   );
